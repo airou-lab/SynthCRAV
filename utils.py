@@ -1,0 +1,340 @@
+#-----------------------------------------------
+# Author      : Mathis Morales                       
+# Email       : mathis-morales@outlook.fr             
+# git         : https://github.com/MathisMM            
+#-----------------------------------------------
+
+import os, shutil
+# import sys 
+import json 
+import numpy as np
+import pandas as pd
+import random
+from typing import List, Dict, Any, Tuple
+
+import colorsys
+import cv2
+
+# load nuScenes libraries
+from nuscenes import NuScenes
+from nuscenes.utils.data_classes import Box
+from nuscenes.utils.geometry_utils import view_points, transform_matrix
+from nuscenes.eval.tracking.utils import metric_name_to_print_format
+
+global sampling_freq
+# sampling_freq = 12 # default value of sampling frequency with sweeps
+
+
+# Misc
+def mkdir_if_missing(path):
+    for i in range(len(path.split('/'))-1):
+        top_dir = ('/'.join(path.split('/')[:i+2]))
+
+        if not os.path.isdir(top_dir):
+            os.mkdir(top_dir)
+            print("created directory at:",top_dir)
+
+def get_data_info(data_root,split):
+    if split=='mini':
+        return '_mini'
+    if split in ['train','val']:
+        if 'mini' in data_root:
+            return '_mini'
+        else:
+            return ''
+    elif 'test' in split:
+        return '_test'
+
+def bckp_res(res,dataset_type):
+    # Copy the contents of ./results/track_output or ./logs/tracklog(_mini) for bckp
+    bckp_folder_name = str((datetime.now()+ timedelta(hours=-6)).strftime("%b-%d-%Y %H:%M:%S")).replace(' ','_').split('.')[0]+dataset_type
+    bckp_path = os.path.join(res.split('/')[1],bckp_folder_name)
+
+    shutil.copytree(res, bckp_path)
+    print('backed-up at:',bckp_path)
+
+
+# nuScenes functions utils
+def load_nusc(split,data_root):
+    assert split in ['train','val','test','mini'], "Bad nuScenes version"
+
+    if split=='mini':
+        nusc_version = 'v1.0-mini'
+    if split in ['train','val']:
+        nusc_version = 'v1.0-trainval'
+    elif split =='test':
+        nusc_version = 'v1.0-test'
+    
+    nusc = NuScenes(version=nusc_version, dataroot=data_root, verbose=True)
+
+    return nusc
+
+def get_sensor_param(nusc, sample_token, cam_name='CAM_FRONT'):	# Unused function
+
+
+    sample = nusc.get('sample', sample_token)
+
+    # get camera sensor
+    cam_token = sample['data'][cam_name]
+    sd_record_cam = nusc.get('sample_data', cam_token)
+    cs_record_cam = nusc.get('calibrated_sensor', sd_record_cam['calibrated_sensor_token'])
+    pose_record = nusc.get('ego_pose', sd_record_cam['ego_pose_token'])
+
+    return pose_record, cs_record_cam
+
+def get_sample_info(nusc,sensor,token,verbose=False):	# Unused function
+
+    scenes = nusc.scene
+    # print(scenes)
+    # input()
+    for scene in scenes:
+
+        first_sample = nusc.get('sample', scene['first_sample_token']) # sample 0
+        sample_data = nusc.get('sample_data', first_sample['data'][sensor])   # data for sample 0
+
+        while True:
+            if sample_data['sample_token']==token:
+                if verbose :
+                    print('\nscene: ',scene)
+                    print('\nsample: ',first_sample)
+                    print ('\nsample_data: ',sample_data)
+                return scene['name'], sample_data['filename']
+
+            if sample_data['next'] == "":
+                #GOTO next scene
+                # print("no next data")
+                if verbose:
+                    print ('token NOT in:',scene['name'])
+                break
+            else:
+                #GOTO next sample
+                next_token = sample_data['next']
+                sample_data = nusc.get('sample_data', next_token)
+
+        # #Looping scene samples
+        # while(sample_data['next'] != ""):       
+        #     # if sample_token corresponds to token
+        #     if sample_data['sample_token']==token:
+
+        #         if verbose :
+        #             print('\nscene: ',scene)
+        #             print('\nsample: ',first_sample)
+        #             print ('\nsample_data: ',sample_data)
+        #         return scene['name'], sample_data['filename']
+
+        #     else:
+        #         # going to next sample
+        #         sample_data = nusc.get('sample_data', sample_data['next'])
+
+    return 0
+
+def get_total_scenes_list(nusc,sensor): # Unused function
+    scenes = nusc.scene
+    scenes_list=[]
+    for scene in scenes :
+        scenes_list.append(scene['name'])
+        # print (scene)
+        # first_sample = nusc.get('sample', scene['first_sample_token']) # sample 0
+        # sample_data = nusc.get('sample_data', first_sample['data'][sensor])   # data for sample 0
+        # print(sample_data)
+        # input()
+
+    return scenes_list
+
+def get_scenes_list(path):
+    scenes_list = []
+
+    # listing scenes
+    for scene in os.listdir(path):
+        scenes_list.append(scene) if scene.split('.')[-1]=='txt' else ''
+    
+    return scenes_list
+
+def get_sample_metadata (nusc,sensor,token,verbose=False):
+    scenes = nusc.scene
+    
+    if verbose:
+        print('Looking for metadata for token: %s'%(token))
+
+    for scene in scenes:
+
+        first_sample = nusc.get('sample', scene['first_sample_token']) # sample 0
+        sample_data = nusc.get('sample_data', first_sample['data'][sensor])   # data for sample 0
+        
+        #Looping scene samples
+        while(True):
+            # if sample_token corresponds to token
+            if sample_data['token']==token:
+                if verbose:
+                    print('\nscene:',scene)
+                    print('\nfirst sample:',first_sample)
+                    print('\nsample_data:',sample_data)
+
+                    print('\nego token:',sample_data['ego_pose_token'])
+                    print('\nsensor token:',sample_data['calibrated_sensor_token'],'\n')
+
+                sd_record = nusc.get('sample_data', sample_data['token'])
+                cs_record = nusc.get('calibrated_sensor', sd_record['calibrated_sensor_token'])
+                sensor_record = nusc.get('sensor', cs_record['sensor_token'])
+                pose_record = nusc.get('ego_pose', sd_record['ego_pose_token'])
+                cam_intrinsic = np.array(cs_record['camera_intrinsic'])
+                imsize = (sd_record['width'], sd_record['height'])
+
+                if verbose:
+                    print('-----------------------------------------------------')
+                    print('sd_record: ',sd_record)
+                    print('\n cs_record: ',cs_record)
+                    print('\n sensor_record: ',sensor_record)
+                    print('\n pose_record: ',pose_record)
+                    print('\n cam_intrinsic: ',cam_intrinsic)
+                    print('\n imsize: ',imsize)
+                    print('-----------------------------------------------------')
+                    print ('\n\n')
+                    print ()
+
+                return cs_record, pose_record, cam_intrinsic
+
+            if sample_data['next']=="":
+                # going to next scene
+                break
+            else:
+                # going to next sample
+                sample_data = nusc.get('sample_data', sample_data['next'])
+
+        if verbose:
+            print ('token NOT in:',scene['name'])
+    return 0
+
+def get_ego_pose(nusc,sensor,token,verbose=False):# Unused function
+    _, pose_record, _ = get_sample_metadata(nusc,sensor,token)
+    return pose_record
+
+def get_sensor_data(nusc,sensor,token,verbose=False):# Unused function
+    cs_record, _, cam_intrinsic = get_sample_metadata(nusc,sensor,token)
+    return cs_record, cam_intrinsic
+
+def render_box(self, im: np.ndarray, text: str, vshift:int = 0, hshift:int = 0,\
+				view: np.ndarray = np.eye(3), normalize: bool = False, bottom_disp: bool = False,\
+				colors: Tuple = ((0, 0, 255), (255, 0, 0), (155, 155, 155)), linewidth: int = 2 , text_scale : float = 0.5) -> None:
+    """
+    Renders box using OpenCV2.
+    :param im: <np.array: width, height, 3>. Image array. Channels are in BGR order.
+    :param text : str. Add any text to the image, by default the first letter is centered on the bbox 3d center.
+    :param vshift/hshift : int. Add a vertical/horizontal shift to the bbox text.
+    :param view: <np.array: 3, 3>. Define a projection if needed (e.g. for drawing projection in an image).
+    :param normalize: Whether to normalize the remaining coordinate.
+    :param bottom_disp: Display text under bounding box.
+    :param colors: ((R, G, B), (R, G, B), (R, G, B)). Colors for front, side & rear.
+    :param linewidth: Linewidth for plot.
+    :param text_scale: size of text.
+    """
+    corners = view_points(self.corners(), view, normalize=normalize)[:2, :]
+
+    def draw_rect(selected_corners, color):
+        prev = selected_corners[-1]
+        for corner in selected_corners:
+            cv2.line(im,
+                     (int(prev[0]), int(prev[1])),
+                     (int(corner[0]), int(corner[1])),
+                     color, linewidth)
+            prev = corner
+
+    # Draw the sides
+    for i in range(4):
+        cv2.line(im,
+                 (int(corners.T[i][0]), int(corners.T[i][1])),
+                 (int(corners.T[i + 4][0]), int(corners.T[i + 4][1])),
+                 colors[2][::-1], linewidth)
+
+    # Draw front (first 4 corners) and rear (last 4 corners) rectangles(3d)/lines(2d)
+    draw_rect(corners.T[:4], colors[0][::-1])
+    draw_rect(corners.T[4:], colors[1][::-1])
+
+    # Draw line indicating the front
+    center_bottom_forward = np.mean(corners.T[2:4], axis=0)
+    center_bottom = np.mean(corners.T[[2, 3, 7, 6]], axis=0)
+    cv2.line(im,
+             (int(center_bottom[0]), int(center_bottom[1])),
+             (int(center_bottom_forward[0]), int(center_bottom_forward[1])),
+             colors[0][::-1], linewidth)
+
+    h = corners.T[3][1] - corners.T[0][1]
+    l = corners.T[0][0] - corners.T[1][0]
+
+    center = [center_bottom[0],center_bottom[1]-h/2]
+
+    if bottom_disp:
+        # adding a vertical shif of 0.8*h downwards
+        vshift = int(0.8*h)
+
+    # centering text
+    hshift = -len(text)*10
+    hshift = int(-abs(l)/2)
+
+    if "pedestrian" in text: # fixing too low txt for pedestrian (different bbox type)
+        vshift = int(0.6*h)
+
+    cv2.putText(im,
+                text,
+                org=(int(center[0])+hshift, int(center[1])+vshift),
+                fontFace=cv2.FONT_HERSHEY_SIMPLEX,fontScale=text_scale,color=(0, 0, 0),thickness=1,lineType=cv2.LINE_AA
+                )
+
+
+
+# colors and boxes
+def random_colors(N, bright=True):
+    """
+    Generate random colors.
+    To get visually distinct colors, generate them in HSV space then
+    convert to RGB.
+    """
+    brightness = 1.0 if bright else 0.7
+    hsv = [(i / float(N), 1, brightness) for i in range(N)]
+    colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+    # random.shuffle(colors)
+    return colors
+
+def fixed_colors():
+    f = open('color_scheme.txt','r')     # reading file
+    text = f.readlines()
+    color_name = []
+    color_val_txt = []
+    color_val = []
+    for item in text:
+        color_name.append(item.split(',')[0])
+        color_val_txt.append(item.split('(')[1].split(')')[0])
+    for color in color_val_txt:
+        color_tmp = (float(color.split(',')[0])/255,float(color.split(',')[1])/255,float(color.split(',')[2])/255,)
+        color_val.append(color_tmp)
+
+    f.close()
+    return color_val
+
+def box_name2color(name):
+    if name == 'car':
+        c = (255,0,0)       # red
+    
+    elif name == 'pedestrian':
+        c = (0,0,255)       # blue
+    
+    elif name == 'truck':
+        c = (255,255,0)     # yellow
+    
+    elif name == 'bus':
+        c = (255,0,255)     # magenta
+    
+    elif name == 'bicycle':
+        c = (0,255,0)       # green
+    
+    elif name == 'motorcycle':
+        c = (192,192,192)   # silver
+    
+    elif name == 'trailer':
+        c = (165,42,42)     # brown
+
+    else :
+        c = (255,255,255)     # brown
+
+    return c
+
