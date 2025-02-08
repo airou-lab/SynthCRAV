@@ -15,9 +15,12 @@ import random
 import pcl
 import struct
 import copy
+import argparse
 
 from shutil import copyfile
 from pyquaternion import Quaternion
+from math import cos, sin
+from mpl_toolkits.mplot3d import Axes3D
 
 import cv2
 import matplotlib.pyplot as plt
@@ -35,124 +38,16 @@ from utils import *
 
 pd.set_option('display.max_rows', None)
 
+sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
+                'RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']
+
+cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT']
+
+radar_list = ['RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']  
 
 
-# unused stuff
-def bin():
-    # filename = 'nuScenes/'+sample_data['filename']
-    # print('\nfilename:',filename)
-    # print ('opening point cloud data')
-
-    # dat = o3d.io.read_point_cloud(filename)
-    # print('\nraw dat:\n',dat)
-    # print('\nraw points:\n',dat.points)
-
-    # print('\npoints:\n', np.asarray(dat.points))
-
-    # # o3d.visualization.draw_geometries([dat])
-    # # viz_radar_dat(sample_data)
-
-    pass
-
-def process_radar_dat(nusc):
-    # for scene in nusc.scene:
-    #     print('scene:\n',scene)
-    #     nusc_sample = nusc.get('sample', scene['first_sample_token'])
-    #     while True:
-    #         sample_data_list = []
-    #         print('nusc_sample:\n',nusc_sample)
-
-    #         # Extract sensor data
-    #         for sensor in radar_list :
-    #             sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
-    #             print('sample_data:\n',sample_data)
-
-    #             filename = 'nuScenes/'+sample_data['filename']
-    #             print('\nfilename:',filename)
-    #             print('opening point cloud data')
-    #             print(100*'-')
-    #             #----------------------------------------------------------------------Testing Grounds----------------------------------------------------------------------
-                
-    #             meta = []
-    #             with open (filename, 'rb') as file:
-    #                 for line in file:
-    #                     line = line.strip().decode('utf-8')
-    #                     meta.append(line)                        
-
-    #                     if line.startswith('DATA'):
-    #                         break
-    #                     # print(line)
-
-    #                 data_binary = file.read()
-    #                 # print(binary_dat)
-
-    #             fields = meta[2].split(' ')[1:]
-    #             sizes = meta[3].split(' ')[1:]
-    #             types = meta[4].split(' ')[1:]
-    #             width = int(meta[6].split(' ')[1])
-    #             height = int(meta[7].split(' ')[1])
-    #             data = meta[10].split(' ')[1]
-    #             feature_count = len(types)                    
-                
-    #             unpacking_lut = {'F': {2: 'e', 4: 'f', 8: 'd'},
-    #                      'I': {1: 'b', 2: 'h', 4: 'i', 8: 'q'},
-    #                      'U': {1: 'B', 2: 'H', 4: 'I', 8: 'Q'}}
-    #             types_str = ''.join([unpacking_lut[t][int(s)] for t, s in zip(types, sizes)])
-
-    #             # Decode each point.
-    #             offset = 0
-    #             point_count = width
-    #             points = []
-    #             for i in range(point_count):
-    #                 point = []
-    #                 for p in range(feature_count):
-    #                     start_p = offset
-    #                     end_p = start_p + int(sizes[p])
-    #                     assert end_p < len(data_binary)
-    #                     point_p = struct.unpack(types_str[p], data_binary[start_p:end_p])[0]
-    #                     point.append(point_p)
-    #                     offset = end_p
-    #                 points.append(point)
-
-    #             print(points)
-
-    #             print(fields)
-
-    #             df = pd.DataFrame(points,columns=fields)
-
-    #             print(df)
-
-    #             # cloud = RadarPointCloud.from_file(file_name=filename)
-
-    #             # print(cloud.)
-
-    #             dat = o3d.io.read_point_cloud(filename)
-    #             # print('\nraw dat:\n',dat)
-    #             print('\nraw points:\n',dat.points)
-
-    #             print('\npoints:\n', np.asarray(dat.points))
-
-    #             # # cloud = pcl.load(filename)
-
-    #             # # print(cloud)
-
-    #             # exit()
-    #             o3d.visualization.draw_geometries([dat])
-    #             # viz_radar_dat(sample_data)
 
 
-    #             #----------------------------------------------------------------------Testing Grounds----------------------------------------------------------------------
-    #             exit()
-                
-    #         if nusc_sample['next'] == "":
-    #             #GOTO next scene
-    #             print("no next data in scene %s"%(scene['name']))
-    #             break
-    #         else:
-    #             #GOTO next sample
-    #             next_token = nusc_sample['next']
-    #             nusc_sample = nusc.get('sample', next_token)
-    pass
 
 # idea to explore : render_pointcloud_in_image and render it on the relevant cam (all except cam_back)
 
@@ -255,6 +150,8 @@ def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes
         return ax
 
 def viz_radar_dat(sample_data):
+    # Visualize radar point clouds of this sample for this a specific sensor   
+
     fig, ax = plt.subplots(1,1)
     
     ax=render_radar_data(sample_data['token'], nsweeps=5, underlay_map=True, ax=ax) 
@@ -264,12 +161,49 @@ def viz_radar_dat(sample_data):
     plt.tight_layout()
     plt.show()
 
-def disp_sensor_dat(sample_data_list):
+def viz_all_sample_img(nusc_sample):
+    # Visualize mosaic of all Camera images of this sample   
+    fig, ax = plt.subplots(3,2)
+    ax = ax.flatten()
+    
+    for i, sensor in enumerate(cam_list):
+        sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
+        filename = 'nuScenes/'+sample_data['filename']
+
+        img = plt.imread(os.path.join('nuScenes',sample_data['filename']))
+        ax[i].imshow(img)
+
+        ax[i].set_title(sensor)
+
+    plt.show(block=False)
+
+def viz_all_sample_radar(nusc_sample):
+    # Visualize mosaic of all radar point clouds of this sample   
+    fig, ax = plt.subplots(3,2)
+    ax = ax.flatten()
+    
+    for i, sensor in enumerate(radar_list):
+        sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
+        filename = 'nuScenes/'+sample_data['filename']
+
+        ax[i]=render_radar_data(sample_data['token'], nsweeps=5, underlay_map=True, ax=ax[i]) 
+
+        ax[i].set_title(sensor)
+
+    # unused axis
+    ax[5].axis('off')
+
+
+    plt.show()
+
+def disp_all_sensor_mosaic(nusc_sample):
+    # Visualize mosaic cof all sensors
     fig, ax = plt.subplots(4,3)
     
     ax = ax.flatten()
 
-    for i, sample_data in enumerate(sample_data_list):
+    for i, sensor in enumerate(sensor_list):
+        sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
         if 'CAM' in sensor_list[i]:
             img = plt.imread(os.path.join('nuScenes',sample_data['filename'])) 
             ax[i].imshow(img)
@@ -278,20 +212,76 @@ def disp_sensor_dat(sample_data_list):
             ax[i]=render_radar_data(sample_data['token'], nsweeps=5, underlay_map=True, ax=ax[i]) 
 
         ax[i].set_title(sensor_list[i])
-
+    
+    # unused axis
     ax[11].axis('off')
 
 
     plt.tight_layout()
     plt.show()
       
+def disp_radar_pts(points,title='',display=True,save_path=''):
+
+    # x = points['x'].to_numpy()
+    # y = points['y'].to_numpy()
+    # z = points['z'].to_numpy()
+    x = points[:,0]
+    y = points[:,1]
+    z = points[:,2]
+
+    # Create the figure and axes object
+    fig = plt.figure(figsize=(16, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Plot the 3D points
+    ax.scatter(x, y, z, c='blue', marker='o')
+
+    # Set labels for the axes
+    ax.set_xlabel('X-axis')
+    ax.set_ylabel('Y-axis')
+    ax.set_zlabel('Z-axis')
+
+    # for i in range(0,360,10):
+        # print(i)
+    ax.view_init(elev=30, azim=180)
+        # plt.savefig('test_'+str(i)) 
+
+    # Set title for the plot
+    ax.set_title(title)
+
+    # Display the plot
+    if display:
+        plt.show()
+
+    if save_path!='':
+        plt.savefig(save_path) 
+
+
+
+# utils functions
+def rot_x(theta):
+    theta=math.radians(theta)
+    return np.array([[1,          0,           0],
+                     [0, cos(theta), -sin(theta)],
+                     [0, sin(theta),  cos(theta)]])
+
+def rot_y(theta):
+    theta=math.radians(theta)
+    return np.array([[ cos(theta), 0,  sin(theta)],
+                     [          0, 1,           0],
+                     [-sin(theta), 0,  cos(theta)]])
+def rot_z(theta):
+    theta=math.radians(theta)
+    return np.array([[cos(theta), -sin(theta), 0],
+                     [sin(theta),  cos(theta), 0],
+                     [         0,           0, 1]])
 
 
 
 # Dataset Parser (most likely using kf to be faster)
-def parse_nusc_keyframes(nusc, sensor_list):
+def parse_nusc_keyframes(nusc, sensors, args):
 
-    deformer=deform_data()
+    deformer=deform_data(args)
 
     for scene in nusc.scene:
         print('scene:\n',scene)
@@ -299,57 +289,132 @@ def parse_nusc_keyframes(nusc, sensor_list):
         print('nusc_sample:\n',nusc_sample)
 
         while True:
-            sample_data_list = []
+            # visualization
+            if args.disp_all_data:
+                disp_all_sensor_mosaic(nusc_sample)
 
             # Extract sensor data
-            for sensor in sensor_list :
+            for sensor in sensors :
                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
                 filename = 'nuScenes/'+sample_data['filename']
 
+                get_ego_pose = nusc.get('ego_pose', sample_data['ego_pose_token'])
+                cs_record = nusc.get('calibrated_sensor', sample_data['calibrated_sensor_token'])
+                sensor_record = nusc.get('sensor', cs_record['sensor_token'])
+
                 print('sample_data:\n',sample_data)            
 
-                if 'RADAR' in sensor :
-                    newfilename = 'test.pcd'
+                print(get_ego_pose)
+                print(cs_record)
+                print(sensor_record)
 
-                    radar_df = extract_radar_dat(filename)
-                    deformed_radar_df = deformer.deform_radar(radar_df)
-                    encode_pcd(deformed_radar_df,filename,newfilename)
+                input()
 
-                    print('original data:')
-                    print(radar_df)
-                    print(100*'-')
+                newfoldername = os.path.join(args.out_root,filename.split('/')[1], sensor)
+                print(newfoldername)
+                mkdir_if_missing(newfoldername)
 
-                    print('extracting from test.pcd')
-                    test_df = extract_radar_dat('test.pcd')
-                    print(test_df)
-                    print(100*'-')                
+                if args.disp_all_img:
+                    viz_all_sample_img(nusc_sample)
 
-                    dat = o3d.io.read_point_cloud(filename)
-                    o3d.visualization.draw_geometries([dat])
-                    print()
-                    print(np.asarray(dat.points))
-                    print(dat)
-                    print()
+                if 'RADAR' in sensor:
+                    newfilename = os.path.join(newfoldername,filename.split('/')[-1])
+                    print(newfilename)
 
-                    newdat = o3d.io.read_point_cloud(newfilename)
-                    print()                    
-                    print(np.asarray(newdat.points))
-                    print(newdat)
-                    print()                    
-                    o3d.visualization.draw_geometries([newdat])
-
-                    # exit()
-
+                    radar_df = decode_pcd_file(filename)
                     
-                    exit()
+                    deformed_radar_df = deformer.deform_radar(radar_df)
 
-                sample_data_list.append(sample_data)
+                    encode_to_pcd_file(deformed_radar_df,filename,newfilename)
+
+                    if args.checksum:
+                        print('chcking encode/decode pipeline of new file')
+                        print('original data:')
+                        print(radar_df)
+                        print(100*'-')
+                        input()
+
+                        print('extracting from test.pcd')
+                        test_df = decode_pcd_file('test.pcd')
+                        print(test_df)
+                        print(100*'-')
+                        input()                
 
 
-            # visualization
-            if disp:
-                disp_sensor_dat(sample_data_list)
-                
+                    # Read datapoints
+                    dat = o3d.io.read_point_cloud(filename)
+                    newdat = o3d.io.read_point_cloud(newfilename)
+
+                    # Applying rotation to data points
+                    # # nuScenes radar coordinates    -->        Carthesian coordinates
+                    # #     z  x                                       y 
+                    # #     | /                       -->              | 
+                    # # y___|/                                        z|__x
+                    # # x forward, y left, z up                       x right, y up, z forward
+
+                    # dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+                    # newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+                    # dat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
+                    # newdat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
+
+                    # converting to numpy format
+                    pts_OG = np.asarray(dat.points)
+                    pts_new = np.asarray(newdat.points)
+
+
+                    if args.disp_radar:
+                        disp_radar_pts(pts_OG,title='original',display=True, save_path='')
+                        disp_radar_pts(pts_new,title='new',display=True, save_path='')
+                        
+                        # using open3d built in (no axis)
+                        # print('Original point clound')
+                        # print(np.asarray(dat.points))
+                        # print(dat)
+                        # o3d.visualization.draw_geometries([dat])
+
+                        # print('New point clound')
+                        # print(np.asarray(newdat.points))
+                        # print(newdat)
+                        # o3d.visualization.draw_geometries([newdat])
+
+                        # dat = o3d.io.read_point_cloud(filename)
+                        # viz_radar_dat(sample_data)
+                        # o3d.visualization.draw_geometries([dat])
+
+                    if args.save_radar:
+                        # Save image by screenshot. Not a great way but didn't find anything better
+                        mkdir_if_missing(newfoldername+'/imgs')
+                        
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG.png')
+                        disp_radar_pts(pts_OG,title='original',display=False, save_path=image_path)
+                        
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new.png')
+                        disp_radar_pts(pts_new,title='new',display=False, save_path=image_path)
+
+
+                        # vis = o3d.visualization.Visualizer()
+
+                        # vis.create_window() 
+                        # vis.add_geometry(dat)
+                        # vis.poll_events()
+                        # vis.update_renderer()
+                        # image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG.png')
+                        # vis.capture_screen_image(image_path)
+                        # vis.destroy_window()
+                        
+                        # vis.create_window() 
+                        # vis.add_geometry(newdat)
+                        # vis.poll_events()
+                        # vis.update_renderer()
+                        # image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new.png')
+                        # vis.capture_screen_image(image_path)
+                        # vis.destroy_window()
+
+
+                elif 'CAM' in sensor:
+                    img = cv2.imread(filename)
+                    deformed_img = deformer.deform_image(img)
+
             if nusc_sample['next'] == "":
                 #GOTO next scene
                 print("no next data in scene %s"%(scene['name']))
@@ -384,7 +449,7 @@ def parse_nusc(nusc):
 
 
 # Radar data extractor
-def extract_radar_dat(filename):
+def decode_pcd_file(filename):
     # Extract sensor data
     print('Opening point cloud data at:', filename)
 
@@ -434,7 +499,7 @@ def extract_radar_dat(filename):
 
     return df
 
-def encode_pcd(df, ogfilename, newfilename):
+def encode_to_pcd_file(df, ogfilename, newfilename):
     """
     Encode a Pandas DataFrame into a .pcd file.
     
@@ -556,58 +621,369 @@ def encode_pcd(df, ogfilename, newfilename):
 
 # WORK IN PROGRESS
 class deform_data():
-    def __init__(self):
-        pass
+    def __init__(self, args):
+        # NuScenes radar model : Continental ARS408-21, 76∼77GHz https://conti-engineering.com/wp-content/uploads/2020/02/ARS-408-21_EN_HS-1.pdf
+        # -Distance
+        # -- Range: 0.20 to 250m far range | 0.20 to 70m/100m at [0;±45]° near range | 0.2 to 20m at ±60° near range
+        # -- Resolution: Up to 1.79 m far range, 0.39 m near range
+        # -Velocity
+        # --Range: -400 km/h to +200 km/h (-leaving objects | +approximation)   --> -111.11 m/s to 55.55 m/s
+        # --Resolution: 0.37 km/h far field, 0.43 km/h near range               --> 0.103 m/s ff, 0.119 m/s nr
+        # radar sensor bounding values
+        
+        # radar sensor bounding values of position
+        self.radar_sensor_bounds = {'dist':{'range':{'min_range':0.2,
+                                                     'far_range':250,
+                                                     'near_mid_range':100, 
+                                                     'near_short_range':20
+                                                    },
+                                            'ang':{'far_range':9, # long range beam is +/- 9 degrees
+                                                    'near_mid_range':45,
+                                                    'near_short_range':60
+                                                  },
+                                            'resolution':{'far_range':1.79,
+                                                          'near_range':0.39
+                                                         }
+                                            },
+                                    'vel':{'range':[-111.11, 55.5],
+                                            'resolution':{'far_range':0.103,
+                                                          'near_range':0.119
+                                                        }
+                                            }
+                                    }
+        self.args = args
+        self.verbose = args.verbose
     
-    @classmethod
-    def gen_index_list(cls, size, n):
-        # generate a list of random index numbers
-        index_list = []
-        while len(index_list) != n:
-            index = random.randint(0, size-1)
-            if index not in index_list:
-                index_list.append(index)
+    #---------------------------------------------------------Radar functions---------------------------------------------------------
 
-        return index_list
+    def get_ego_vel(self, df):
+        ego_vx = df['vx'] - df['vx_comp']
+        ego_vy = df['vy'] - df['vy_comp']
+
+        return np.mean(ego_vx.to_numpy()), np.mean(ego_vy.to_numpy())
+
+    def within_bound(self, x, y, vx, vy):
+        # -Distance
+        # -- Range: 0.20 to 250m far range | 0.20 to 70m/100m at [0;±45]° near range | 0.2 to 20m at ±60° near range
+        # -- Resolution: Up to 1.79 m far range, 0.39 m near range
+
+        if self.verbose: print('Verifying bounds:')
 
 
-    def gaussian_noise_gen(self, radar_df, mean=0, std=1, noise_split=1, verbose=True):    # should this not be noise level applied to all points ? Yes, set to 1 by default
+        if x<self.radar_sensor_bounds['dist']['range']['min_range'] or x>self.radar_sensor_bounds['dist']['range']['far_range']:
+            # too close | too far
+            if self.verbose: print('Out of min|max bounds')
+            return False
+
+        if vx < self.radar_sensor_bounds['vel']['range'][0] or vy < self.radar_sensor_bounds['vel']['range'][0] \
+        or vx > self.radar_sensor_bounds['vel']['range'][1] or vy > self.radar_sensor_bounds['vel']['range'][1]:
+            # velocity range, rarely even remotely reached
+            if self.verbose: print('Out of velocity bounds')
+            return False
+
+        else:
+            alpha = math.degrees(math.atan2(y,x))   # calculating point angle from sensor in degrees 
+            if self.verbose: print('Alpha:', alpha)
+
+            if x<=self.radar_sensor_bounds['dist']['range']['near_short_range']: 
+                if self.verbose: print('Point is in near short-range')
+                if abs(alpha)>self.radar_sensor_bounds['dist']['ang']['near_short_range']:
+                    if self.verbose: print('Point is OOB with angle:',alpha)
+                    return False
+
+            elif x<=self.radar_sensor_bounds['dist']['range']['near_mid_range']: 
+                if self.verbose: print('Point is in near mid-range')
+                if abs(alpha)>self.radar_sensor_bounds['dist']['range']['near_mid_range']:
+                    if self.verbose: print('Point is OOB with angle:',alpha)
+                    return False
+
+            else:   # far range
+                if self.verbose: print('Point is in far range')
+                if abs(alpha)>self.radar_sensor_bounds['dist']['ang']['far_range']:
+                    if self.verbose: print('Point is OOB with angle:',alpha)
+                    return False
+        
+        # if passed all tests
+        if self.verbose: print('Point is within bounds')
+        return True
+
+    def within_resolution(self, df, x, y):
+        # setting range type
+        if x > 100:
+            rg = 'far_range'
+        else:
+            rg = 'near_range'
+
+        # extracting x,y values from dataset
+        df_x = df['x'].astype('float32').to_numpy()
+        df_y = df['y'].astype('float32').to_numpy()
+        pt_df = np.column_stack((df_x, df_y))
+        
+        # Define the new point
+        new_pt = np.array((x,y))
+        
+        if self.verbose:
+            print('Checking resolution with other points of point cloud')
+            print('Point clouds:\n',pt_df)
+            print('Proposed point:\n',new_pt)
+
+            print('\npoint range:',rg)
+            print('min resolution:', self.radar_sensor_bounds['dist']['resolution'][rg])
+
+            print(pt_df.dtype)  # Should be a floating-point type like float32 or float64
+            print(new_pt.dtype)  # Should also be float32 or float6
+            
+
+            print('distances with all other points:\n', np.linalg.norm(pt_df - new_pt, axis=1))
+
+        # return False if some points are too close
+        if np.any(np.linalg.norm(pt_df - new_pt, axis=1) < self.radar_sensor_bounds['dist']['resolution'][rg]):
+            if self.verbose: print('Resolution test failed')
+            return False
+        else: 
+            if self.verbose: print('Within resolution')
+            return True
+
+    def create_ghost_point(self, df, i):
+        if self.verbose:
+            print('Generating ghost point')
+            print('Using row %d as template:'%(i))
+            print('Original values: \tx:',df.loc[i,'x'],'\ty:', df.loc[i,'y'])
+
+        # Initialiazing point with inadmissible values
+        x_fake=0
+        y_fake=0
+        vx_fake=1000
+        vy_fake=1000
+
+        if self.verbose: print('Initial ghost point: \tx:',x_fake,'\ty:', y_fake, '\tx:',vx_fake,'\ty:', vy_fake)
+
+        # Controlling if point is realistic
+        while not (self.within_bound(x_fake,y_fake,vx_fake,vy_fake) and self.within_resolution(df, x_fake, y_fake)):
+            # maybe wrap this in a function later
+            x_shift = np.random.normal(0, self.radar_sensor_bounds['dist']['range']['far_range']/6)
+            y_shift = np.random.normal(0, 40) # theoretical max value for y is y_max = 70*tan(45)~=115 => 3sigmq = 115 => sigma = 115/3 ~=40 
+            x_fake = df.loc[i,'x'] + x_shift
+            y_fake = df.loc[i,'y'] + y_shift
+
+            # getting range for corresponding velocity resolution
+            if x_fake > self.radar_sensor_bounds['dist']['range']['near_mid_range'] :
+                rg = 'far_range'
+            else:
+                rg = 'near_range'
+
+            # Calculating velocity shift corresponding to position shift
+            vx_shift = self.radar_sensor_bounds['vel']['resolution'][rg] * x_shift
+            vy_shift = self.radar_sensor_bounds['vel']['resolution'][rg] * y_shift
+
+            vx_fake = df.loc[i,'vx'] + vx_shift
+            vy_fake = df.loc[i,'vy'] + vy_shift
+
+
+            if self.verbose: print('Proposed ghost point: \tx:',x_fake,'\ty:', y_fake, '\tvx:',vx_fake,'\tvy:', vy_fake)
+        
+        # extracting ego motion from point_cloud, using it to re-create motion compensated fake points
+        vx_ego, vy_ego = self.get_ego_vel(df)
+        vx_fake_comp = vx_fake - vx_ego
+        vy_fake_comp = vy_fake - vy_ego
+
+        if self.verbose:
+            print('Original values: \tx:',df.loc[i,'x'], '\ty:', df.loc[i,'y'],\
+                                    '\tvx:',df.loc[i,'vx'], '\tvy:', df.loc[i,'vy'],\
+                                    '\tvx_comp:',df.loc[i,'vx_comp'], '\tvx_comp:', df.loc[i,'vx_comp'])
+            print('Retained points: \tx:',x_fake,'\ty:', y_fake, \
+                                    '\tvx:',vx_fake,'\tvy:', vy_fake,\
+                                    '\tvx_comp:',vx_fake_comp, '\tvx_comp:', vy_fake_comp)
+
+        return x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp
+            
+    def FP_FN_gen(self, radar_df, noise_level):
+        # generates rm_split % fake points and removes fake_spit % points from the dataframe
+
+        # Initializing new dataframes and variables
+        subset_df = copy.deepcopy(radar_df)
+        ghost_df = pd.DataFrame(columns=subset_df.columns)
+        n_rows=len(radar_df)
+
+        # If no noise : return original dataset
+        if noise_level == 0:
+            return subset_df
+
+
+        # Calculating chance of being dropped:
+        # # Rule : 0% noise => 0%  chance of removal
+        # #      100% noise => 75% chance of removal
+        drop_rate = 0.75*noise_level # we still want to keep points even at 100% noise
+
+
+        # Calculating chance of creating ghost point (chance for each point to be used to create a fake point, not necesserally outlier):
+        # # Rule : 0% noise => 0%  chance of ghost
+        # #      100% noise => 10% chance of ghost
+        ghost_rate = 0.20*noise_level # Realistically ghost points remain pretty rare
+
+
+        #-------------------------------------Ghost points generation-------------------------------------
+        # Should we try to create clusters and outliers ? random gen should do that on its own but uncontrolled
+
+        # Each row has a ghost_rate chance of being used to create a ghost point 
+        random_vals = np.random.rand(n_rows)
+        ghost_indices = np.where(random_vals <= ghost_rate)[0]
+        print('ghost_indices:',ghost_indices)
+        
+        if ghost_indices.tolist():
+            ghost_df = subset_df.iloc[ghost_indices]
+            for i in ghost_indices:
+                # Generating ghost points out of these real points
+                x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp = self.create_ghost_point(subset_df, i)
+                # Updating dataset values
+                ghost_df.loc[i,['x','y','vx','vy','vx_comp','vy_comp']]= [x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp]
+                # Recasting correct variable types
+                ghost_df = ghost_df.astype({'x': 'float32', 'y': 'float32', 'vx': 'float32', 'vy': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
+
+
+        #----------------------------------------Random points drop----------------------------------------
+
+        print(radar_df)
+
+        # Each row has a drop_rate chance of being dropped 
+        random_vals = np.random.rand(n_rows)
+        drop_indices = np.where(random_vals <= drop_rate)[0]
+
+        if self.verbose: 
+            print('Removing %d random rows'%(len(drop_indices)))
+            print('Removed rows:',drop_indices)
+
+        subset_df = subset_df.drop(drop_indices, axis=0)
+        subset_df.reset_index(drop=True, inplace=True)
+
+        if self.verbose: print('Subset:', subset_df)
+
+        return subset_df, ghost_df
+
+    def gaussian_noise_gen(self, subset_df, noise_level): 
         # Generating n random points from a gaussian random distribution
         # noise_split is a percentage, the amount of points is this a subset of radar_df
 
-        # output df
-        noisy_df = copy.deepcopy(radar_df)
+        # we apply the noies uniformly to all point. Noise is a mix of gaussian and uniform rv
+        # Initialization
 
+        # subset_df = copy.deepcopy(df)
 
-        # setting amount of modified points
-        n_mod_pts = int(noise_split*len(radar_df))
+        print(subset_df)
+        n_rows = len(subset_df)
+        noise_arr = {'x':list(), 'y':list(),'vx':list(), 'vy':list(), 'type':list()}
 
-        # generating n_mod_pts noise values
-        noise_arr = {'x':list(), 'y':list()}
-        noise_arr['x']=np.random.normal(mean, std, n_mod_pts)
-        noise_arr['y']=np.random.normal(mean, std, n_mod_pts)
+   
+        # --------------------------------Correlated position/velocity noise--------------------------------
+        # (This is probably the most realisitic way to do it, with a joint noise model: v_noise = alpha x pos_noise)
         
-        if verbose:
-            print('Generating %d random points' %(n_mod_pts))
-            print(noise_arr)
+        # Position
+        ## generating n_rows noise values
+        # Here different models
 
-        # selecting random points to add noise to
-        index_list = self.gen_index_list(size=len(radar_df),n=n_mod_pts)
+        # 80 % chance of gaussian noise, 9% of uniformely distributed, 1% of outlier
         
-        if verbose:
-            print('randomly selecting %d rows' %(n_mod_pts))
-            print(index_list)
-            
-        # adding noise on x and y values
-        noisy_df.loc[index_list,'x'] += noise_arr['x']
-        noisy_df.loc[index_list,'y'] += noise_arr['y']
+        noise_split_chance = np.random.rand(n_rows)
+        noise_arr['type'] = ['outlier' if draw<0.01 else 'uniform' if draw<0.09 else 'gaussian' for draw in noise_split_chance]
+        
+        noise_arr['x'] = [  np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2) if t == 'outlier' else
+                            np.random.uniform(-5*noise_level, 5*noise_level) if 't' == 'uniform' else
+                            10 * np.random.normal(0, noise_level) for t in noise_arr['type']]
 
-        return noisy_df
+        noise_arr['y'] = [  np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2) if t == 'outlier' else
+                            np.random.uniform(-5*noise_level, 5*noise_level) if 't' == 'uniform' else
+                            10 * np.random.normal(0, noise_level) for t in noise_arr['type']]
 
-        # TODO : also needs to be done to velocity values but they are smaller (ergo smaller noise)
+        # Position Bounds security check
+        for i in range(n_rows):
+            # first checking if original point is inside of safety check
+            if not(self.within_bound(subset_df.loc[i,'x'],subset_df.loc[i,'y'],0,0)):
+                # If original point was OOB, make sure the noise gaussian (small) and skip
+                noise_arr['x'][i] = np.random.normal(0, noise_level)
+                noise_arr['y'][i] = np.random.normal(0, noise_level)
+                pass
+            else:
+                x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
+                y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
 
-    def FP_FN_gen(self, radar_df, rm_split=0.1, fake_split=0.1, verbose=True):
-        # generates rm_split % fake points and removes fake_spit % points from the dataframe
+                if not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(subset_df, x_new, y_new)):
+                    while not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(subset_df, x_new, y_new)):
+                        t = noise_arr['type'][i]
+                        if t == 'outlier':
+                            noise_arr['x'][i] = np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2)
+                            noise_arr['y'][i] = np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2)
+                        elif t == 'uniform':
+                            noise_arr['x'][i] = np.random.uniform(-5*noise_level, 5*noise_level)
+                            noise_arr['y'][i] = np.random.uniform(-5*noise_level, 5*noise_level)
+                        else:
+                            noise_arr['x'][i] = 10 * np.random.normal(0, noise_level)
+                            noise_arr['y'][i] = 10 * np.random.normal(0, noise_level)
+                        x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
+                        y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
+        
+        if self.verbose:
+            print_df = pd.DataFrame()
+            print_df['x'] = noise_arr['x'] 
+            print_df['y'] = noise_arr['y'] 
+            print_df['type'] = noise_arr['type'] 
+
+            print(print_df)
+
+
+        # converting to numpy array
+        noise_arr['x']=np.array(noise_arr['x'])
+        noise_arr['y']=np.array(noise_arr['y'])
+
+        ## Previous method:
+        # noise_arr['x'] = 10 * np.random.normal(0, noise_level, n_rows)
+        # noise_arr['y'] = 10 * np.random.normal(0, noise_level, n_rows)
+        # Deactivated due to OG points already being out sometimes 
+        # # Position Bounds security check
+        # for i in range(n_rows):
+        #     x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
+        #     y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
+
+        #     if not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(df, x_new, y_new)):
+        #         while not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(df, x_new, y_new)):
+        #             noise_arr['x'][i] = 10 * np.random.normal(0, noise_level, n_rows)
+        #             noise_arr['y'][i] = 10 * np.random.normal(0, noise_level, n_rows)
+        #             x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
+        #             y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
+
+
+        ## Adding noise on x and y values
+        subset_df.loc[:,'x']  += noise_arr['x']
+        subset_df.loc[:,'y']  += noise_arr['y']
+
+
+        if self.verbose: 
+            print('resulting noise arrays:\n', noise_arr['x'])
+
+
+        # Velocity 
+        ## Getting range type for each points
+        rg_arr = ['far_range' if noise_arr['x'][i]>self.radar_sensor_bounds['dist']['range']['near_mid_range'] else 'near_range' for i in range(n_rows)]
+
+        ## Calculating velocity shift corresponding to position shift
+        noise_arr['vx'] = [self.radar_sensor_bounds['vel']['resolution'][rg] for rg in rg_arr] * noise_arr['x']
+        noise_arr['vy'] = [self.radar_sensor_bounds['vel']['resolution'][rg] for rg in rg_arr] * noise_arr['y']
+        
+        ## Adding noise on vx and vy values
+        subset_df.loc[:,'vx']  += noise_arr['vx']
+        subset_df.loc[:,'vy']  += noise_arr['vy']
+
+        ## Corresponding noise on vx_comp and vy_comp
+        vx_ego, vy_ego = self.get_ego_vel(subset_df)        # extracting ego motion from point_cloud, using it to re-create motion compensated noisy point
+        subset_df.loc[:,'vx_comp'] = subset_df.loc[:,'vx'] - vx_ego
+        subset_df.loc[:,'vy_comp'] = subset_df.loc[:,'vy'] - vy_ego
+
+        # --------------------------------------------------------------------------------------------------
+
+        return subset_df
+
+
+    #-------------------------------------------------Sensor-specific main functions-------------------------------------------------
+    def deform_radar(self,radar_df):
         # NuScenes radar model : Continental ARS408-21, 76∼77GHz
         # -Distance
         # -- Range: 0.20 to 250m far range | 0.20 to 70m/100m at [0;±45]° near range | 0.2 to 20m at ±60° near range
@@ -616,116 +992,139 @@ class deform_data():
         # --Range: -400 km/h to +200 km/h (-leaving objects | +approximation)   --> -111.11 m/s to 55.55 m/s
         # --Resolution: 0.37 km/h far field, 0.43 km/h near range               --> 0.103 m/s ff, 0.119 m/s nr
 
-
-        subset_df = copy.deepcopy(radar_df)
-
-        n_rm = int(rm_split*len(radar_df))
-        n_fake = int(fake_split*len(radar_df))
-
-
-        # removing n_rm random points
-        if verbose:
-            print('Removing %d random rows'%(n_rm))
-        rm_index_list = self.gen_index_list(size=len(radar_df),n=n_rm)
-        subset_df = subset_df.drop(rm_index_list, axis=0)
-        subset_df.reset_index(drop=True, inplace=True)
-
-        if verbose:
-            print('Removed rows:',rm_index_list)
-
-        # adding n-fake fake points
-        ## We do this by copying points and adding random values to them (large gaussian variable to create outlisers as well as clusters)?
-        if verbose:
-            print('Creating %d randomly generated ghost points'%(n_fake))
-        fake_index_list = self.gen_index_list(size=len(radar_df),n=n_fake)
-        x_list = np.random.normal(0, 10, n_fake)
-        y_list = np.random.normal(0, 10, n_fake)
-        vx_list = np.random.normal(0, 1, n_fake)
-        vy_list = np.random.normal(0, 1, n_fake)
-
-        ghost_df = radar_df.loc[fake_index_list]
-        if verbose:
-            print('Using following rows:')
-            print(ghost_df)
-
-        ghost_df.loc[:,'x'] += x_list
-        ghost_df.loc[:,'y'] += y_list
-        ghost_df.loc[:,'vx_comp'] += vx_list
-        ghost_df.loc[:,'vy_comp'] += vy_list
-        
-        if verbose:
-            print('Ghost points:')
-            print(ghost_df)
-
-        output_df = pd.concat([subset_df, ghost_df], axis=0, join='outer', ignore_index=True)
-
-        return subset_df, ghost_df
+        # Noise level:
+        # 0 means nothing changes (i.e output dataframe = input dataframe)
+        # 100 % means : - 90 % of data is missing 
+        #               - 10 % of ghost points generated
+        #               - position and velocity Gaussian RVs can go from min to max theoretical values
+        # 
+        # Missing data can go from 0 to 90 of the dataset
+        # Ghost point generation goes from 0 to 20 % of dataset size (and need to be spaced out of other points from at least the resolution value)
+        # Position and velocity random variables are between 0 and their maximum values
 
 
-    def deform_radar(self,radar_df):
         print('Original dataframe:')
         print(radar_df)
+        
+        for row in range(len(radar_df)):
+            val = self.within_bound(radar_df.loc[row,'x'],radar_df.loc[row,'y'],radar_df.loc[row,'vx'],radar_df.loc[row,'vy'])
+            print(val)
+            if not val:
+                print(radar_df.iloc[row])
+                # input()
+
+        # noise level dial (0.0 - 1.0)
+        noise_level = 0.1
 
         # Randomly removing and generating points
-        trunc_df, ghost_df = self.FP_FN_gen(radar_df, rm_split=0.5, fake_split=0.1, verbose=False)
+        trunc_df, ghost_df = self.FP_FN_gen(radar_df, noise_level)
+
+        print('truncated dataframe:\n',trunc_df)
+        print('ghost dataframe:\n',ghost_df)
 
         # Adding noise on remaining points (non-generated)
-        noisy_df = self.gaussian_noise_gen(trunc_df, mean=0, std=1, verbose=False)
+        noisy_df = self.gaussian_noise_gen(trunc_df, noise_level)
 
+        if self.verbose:
+            compare_df = pd.DataFrame(columns=['x_OG','x_new','y_OG','y_new','vx_OG','vx_new','vy_OG','vy_new','vx_comp_OG','vx_comp_new','vy_comp_OG','vy_comp_new'])
+            compare_df[['x_OG','y_OG','vx_OG','vy_OG','vx_comp_OG','vy_comp_OG']] = trunc_df [['x','y','vx','vy','vx_comp','vy_comp']]
+        
+            compare_df[['x_new','y_new','vx_new','vy_new','vx_comp_new','vy_comp_new']] = noisy_df [['x','y','vx','vy','vx_comp','vy_comp']]
+
+            print('Comparing original (subset) | noisy dataset:\n',compare_df)
+
+
+        # Adding ghost points to noisy dataset
         final_df = pd.concat([noisy_df, ghost_df], axis=0, join='outer', ignore_index=True)
 
-        final_df = final_df.astype({'x': 'float32', 'y': 'float32', 'z': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'})
+        # casting variable types on final dataset (even though this is re-done by the encoding file, this acts as a sort of security)
+        final_df = final_df.astype({'x': 'float32', 'y': 'float32', 'z': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
 
-        print('Output dataframe:')
-        print(final_df)
+
+        # Sorting dataset by id to shuffle in ghost points
+        final_df.sort_values('id',axis=0,inplace=True)
+        # Resetting index
+        final_df.reset_index(drop=True, inplace=True)
+        # Resetting id column to avoid doubles
+        final_df['id'] = final_df.index 
+
+        if self.verbose:
+            print('Output dataframe:')
+            print(final_df)
 
         return final_df
 
         
-    def deform_image(self):
+    def deform_image(self,img):
         pass
 
 
-# Variables
-split = 'mini'
-keyframes = True
-disp = False
-# force-focus on specific sensor:
-sensor = 'RADAR_FRONT'
-# force-focus on specific scene:
-at_scene = None
+
+
+
+
+
+#--------------------------------------------------------------------Main--------------------------------------------------------------------
+def create_parser():
+
+    parser = argparse.ArgumentParser()
+    
+    # nuScenes loading
+    parser.add_argument('--nusc_root', type=str, default='./nuScenes', help='nuScenes data folder')
+    parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
+    parser.add_argument('--sensor', type=str, default=None, help='Sensor type (see sensor_list) to focus on')
+    parser.add_argument('--at_scene', type=str, default=None, help='Select specific scene to drop in')
+    parser.add_argument('--keyframes', '-kf', action='store_true', default=False, help='Only use keyframes (no sweeps, 2Hz instead of 12)')
+
+    # Output config
+    parser.add_argument('--out_root', type=str, default='./noisy_nuScenes', help='Noisy output folder')
+
+    # Display
+    parser.add_argument('--disp_all_data', action='store_true', default=False, help='Display mosaic with camera and radar original info')
+    parser.add_argument('--disp_radar', action='store_true', default=False, help='Display original Radar point cloud and new one')
+    parser.add_argument('--save_radar', action='store_true', default=False, help='Save screenshot of original Radar point cloud and new one')
+    parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
+    parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
+    parser.add_argument('--verbose', action='store_true', default=False, help='Verbosity on|off')
+
+    # Other
+    parser.add_argument('--debug', action='store_true', default=False, help='Debug argument')
+    parser.add_argument('--checksum', action='store_true', default=False, help='checks encoding/decoding of files')
+
+
+
+
+
+
+    return parser
+
+def check_args(args):
+    sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
+                    'LIDAR_TOP',
+                    'RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']  
+
+    assert args.split in ['train','val','test','mini'], 'Wrong split type'
+    assert args.sensor in sensor_list, 'Unknown sensor selected'    
+   
+    assert os.path.exists(args.nusc_root), 'Data folder at %s not found'%(args.nusc_root)
+
+    print(args)
 
 if __name__ == '__main__':
 
-    sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
-                'RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']
+    parser = create_parser()
+    args = parser.parse_args()
+    check_args(args)
 
-    cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT']
-
-    radar_list = ['RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']  
-
-    if sensor:
-        sensor_list=[sensor]
-
-
+    if args.sensor:
+        sensors=[args.sensor]
+    else:
+        sensors=sensor_list
 
     # Loading scenes
-    nusc = load_nusc(split,'nuScenes')
+    nusc = load_nusc(args.split,args.nusc_root)
 
     # Dataset parser
-    parse_nusc_keyframes(nusc, sensor_list)
+    parse_nusc_keyframes(nusc, sensors, args)
 
-
-
-    # process_radar_dat(nusc)
-
-    # exit()
-
-
-    # if keyframes:
-    #     parse_nusc_keyframes(nusc)
-    # else:
-    #     parse_nusc(nusc)
-
-
-    # exit(1)
+    exit('end of script')
