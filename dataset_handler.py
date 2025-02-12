@@ -161,7 +161,7 @@ def viz_radar_dat(sample_data):
     plt.tight_layout()
     plt.show()
 
-def viz_all_sample_img(nusc_sample):
+def viz_all_sample_img(nusc_sample, save=False):
     # Visualize mosaic of all Camera images of this sample   
     fig, ax = plt.subplots(3,2)
     ax = ax.flatten()
@@ -176,6 +176,10 @@ def viz_all_sample_img(nusc_sample):
         ax[i].set_title(sensor)
 
     plt.show(block=False)
+
+    figname = filename.split('/')[-1]
+    plt.savefig('./noisy_nuScenes/samples/cam_img/'+figname)
+    plt.close()
 
 def viz_all_sample_radar(nusc_sample):
     # Visualize mosaic of all radar point clouds of this sample   
@@ -243,7 +247,7 @@ def disp_radar_pts(points,title='',display=True,save_path=''):
 
     # for i in range(0,360,10):
         # print(i)
-    ax.view_init(elev=30, azim=180)
+    ax.view_init(elev=40, azim=180)
         # plt.savefig('test_'+str(i)) 
 
     # Set title for the plot
@@ -255,6 +259,90 @@ def disp_radar_pts(points,title='',display=True,save_path=''):
 
     if save_path!='':
         plt.savefig(save_path) 
+
+def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, save_path=''):
+    # Display any given image in a matplotlib plot with automatic subplot sizing
+    # if not imgs:
+    #     pass
+
+    # if len(imgs)==1:
+    #     cols=1
+    # else:
+    #     cols=2
+
+    # if len(imgs)%2 == 0:
+    #     # len is pair
+    #     rows = int(len(imgs)/2)
+    # else:
+    #     rows = int((len(imgs)+1)/2)
+
+    if not imgs or len(imgs)>(rows*cols):
+        pass
+
+
+    # margin=50 # pixels
+    # spacing=35 # pixels
+    # dpi=100. # dots per inch
+
+    # w_im = np.shape(imgs[0])[1]
+    # h_im = np.shape(imgs[0])[0]
+
+    # n_imgs = len(imgs)
+
+    # width = (n_imgs*w_im+2*margin+spacing)/dpi
+    # height= (n_imgs*h_im+2*margin+spacing)/dpi
+
+    # left = margin/dpi/width #axes ratio
+    # bottom = margin/dpi/height
+    # wspace = spacing/float(width)
+
+    # fig, ax = plt.subplots(rows,cols)
+    fig, ax = plt.subplots(rows,cols,figsize=(16, 9))
+    # fig, ax = plt.subplots(rows,cols,figsize=(width,height),dpi=dpi)
+    # fig.subplots_adjust(left=left, bottom=bottom, right=1.-left, top=1.-bottom, 
+    #                 wspace=wspace, hspace=wspace)
+    ax = ax.flatten()
+
+    if len(imgs)<rows*cols:
+        for k in range(len(imgs),int(rows*cols),1):
+            ax[k].axis('off')
+
+    for i,img in enumerate(imgs):
+        # correct color scale as images are loaded by openCV
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        ax[i].imshow(img)
+
+        if legends:
+            ax[i].set_title(legends[i])
+
+    if title != '':
+        fig.suptitle(title)
+    
+    plt.tight_layout(pad=0)
+    plt.show(block=block)
+
+    if save_path!='':
+        plt.savefig(save_path) 
+
+def disp_img_cv2(img,title,block=True, save_path=''):
+    # Display any given image in a cv2 plot
+    cv2.imshow(title,img)
+    
+    if block:
+        while True:
+            # showing the image 
+            cv2.imshow(title,img)
+              
+            # waiting using waitKey method 
+            if cv2.waitKey(1) == ord("\r"):
+                break
+
+        # Close all windows
+        cv2.destroyAllWindows()
+
+    if save_path!='':
+        cv2.imwrite(save_path,img)
 
 
 
@@ -270,6 +358,7 @@ def rot_y(theta):
     return np.array([[ cos(theta), 0,  sin(theta)],
                      [          0, 1,           0],
                      [-sin(theta), 0,  cos(theta)]])
+
 def rot_z(theta):
     theta=math.radians(theta)
     return np.array([[cos(theta), -sin(theta), 0],
@@ -308,27 +397,32 @@ def parse_nusc_keyframes(nusc, sensors, args):
                 print(cs_record)
                 print(sensor_record)
 
-                input()
+                # input()
 
                 newfoldername = os.path.join(args.out_root,filename.split('/')[1], sensor)
-                print(newfoldername)
+                print('Output folder name:',newfoldername)
                 mkdir_if_missing(newfoldername)
 
                 if args.disp_all_img:
-                    viz_all_sample_img(nusc_sample)
+                    viz_all_sample_img(nusc_sample,save=True)
+                    continue
 
                 if 'RADAR' in sensor:
                     newfilename = os.path.join(newfoldername,filename.split('/')[-1])
                     print(newfilename)
 
                     radar_df = decode_pcd_file(filename)
+
+                    # print(radar_df)
+                    # print(sum(radar_df['vx'])/len(radar_df))
+                    # input()
                     
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
                     encode_to_pcd_file(deformed_radar_df,filename,newfilename)
 
                     if args.checksum:
-                        print('chcking encode/decode pipeline of new file')
+                        print('checking encode/decode pipeline of new file')
                         print('original data:')
                         print(radar_df)
                         print(100*'-')
@@ -392,28 +486,32 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         disp_radar_pts(pts_new,title='new',display=False, save_path=image_path)
 
 
-                        # vis = o3d.visualization.Visualizer()
 
-                        # vis.create_window() 
-                        # vis.add_geometry(dat)
-                        # vis.poll_events()
-                        # vis.update_renderer()
-                        # image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG.png')
-                        # vis.capture_screen_image(image_path)
-                        # vis.destroy_window()
+                        dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+                        newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+
+                        vis = o3d.visualization.Visualizer()
+
+                        vis.create_window() 
+                        vis.add_geometry(dat)
+                        vis.poll_events()
+                        vis.update_renderer()
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG_open3d.png')
+                        vis.capture_screen_image(image_path)
+                        vis.destroy_window()
                         
-                        # vis.create_window() 
-                        # vis.add_geometry(newdat)
-                        # vis.poll_events()
-                        # vis.update_renderer()
-                        # image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new.png')
-                        # vis.capture_screen_image(image_path)
-                        # vis.destroy_window()
+                        vis.create_window() 
+                        vis.add_geometry(newdat)
+                        vis.poll_events()
+                        vis.update_renderer()
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new_open3d.png')
+                        vis.capture_screen_image(image_path)
+                        vis.destroy_window()
 
 
                 elif 'CAM' in sensor:
-                    img = cv2.imread(filename)
-                    deformed_img = deformer.deform_image(img)
+                    # img = cv2.imread(filename)
+                    deformed_img = deformer.deform_image(filename)
 
             if nusc_sample['next'] == "":
                 #GOTO next scene
@@ -653,9 +751,11 @@ class deform_data():
                                     }
         self.args = args
         self.verbose = args.verbose
+
+        self.noise_level_radar = args.n_level_radar
+        self.noise_level_cam = args.n_level_cam
     
     #---------------------------------------------------------Radar functions---------------------------------------------------------
-
     def get_ego_vel(self, df):
         ego_vx = df['vx'] - df['vx_comp']
         ego_vy = df['vy'] - df['vy_comp']
@@ -762,7 +862,7 @@ class deform_data():
         while not (self.within_bound(x_fake,y_fake,vx_fake,vy_fake) and self.within_resolution(df, x_fake, y_fake)):
             # maybe wrap this in a function later
             x_shift = np.random.normal(0, self.radar_sensor_bounds['dist']['range']['far_range']/6)
-            y_shift = np.random.normal(0, 40) # theoretical max value for y is y_max = 70*tan(45)~=115 => 3sigmq = 115 => sigma = 115/3 ~=40 
+            y_shift = np.random.normal(0, 50) # theoretical max value for y is y_max = 70*tan(45)~=115 => 3sigmq = 115 => sigma = 115/3 ~=40 
             x_fake = df.loc[i,'x'] + x_shift
             y_fake = df.loc[i,'y'] + y_shift
 
@@ -982,6 +1082,64 @@ class deform_data():
         return subset_df
 
 
+    #--------------------------------------------------------Camera functions--------------------------------------------------------
+    def blur(self,img):
+
+        blur_level = 10*self.noise_level_cam
+        ksize = max(3, int(2 * round(blur_level) + 1))
+        sigma = blur_level 
+
+        output_img = cv2.GaussianBlur(img, (ksize, ksize), sigma)
+        
+        return output_img
+
+    def high_exposure(self,img):
+        # creating high exposure with a gaussian kernel x 2 (gotta figure out why this happens)
+        gauss_kernel = (1/16) * np.array([[1,2,1],
+                                          [2,4,2],
+                                          [1,2,1]])
+
+        # noise @ 10%  => 130% exposure (+30%)
+        # noise @ 50%  => 250% exposure (+150%)
+        # noise @ 100% => 400% exposure (+300%)
+        kernel=gauss_kernel*(1+3*self.noise_level_cam)
+
+        output_img = cv2.filter2D(src=img,ddepth=-1,kernel=kernel)
+
+        return output_img
+
+    def low_exposure(self,img):
+        # creating low exposure with a gaussian kernel / 2 (gotta figure out why this happens)
+        gauss_kernel = (1/16) * np.array([[1,2,1],
+                                          [2,4,2],
+                                          [1,2,1]])
+
+        kernel=gauss_kernel/(1+3*self.noise_level_cam)
+
+        output_img = cv2.filter2D(src=img,ddepth=-1,kernel=kernel)
+
+        return output_img
+
+    def add_noise(self,img):
+        w = np.random.normal(0,self.noise_level_cam,img.shape).astype('uint8')
+
+        output_img = cv2.add(img,w)
+
+        return output_img
+
+
+    def add_fog(self,img):
+
+
+        
+
+        disp_img_cv2(image_fog, title='fog test', block=True)
+
+
+        output_img = img
+        return output_img
+
+
     #-------------------------------------------------Sensor-specific main functions-------------------------------------------------
     def deform_radar(self,radar_df):
         # NuScenes radar model : Continental ARS408-21, 76∼77GHz
@@ -1014,7 +1172,7 @@ class deform_data():
                 # input()
 
         # noise level dial (0.0 - 1.0)
-        noise_level = 0.1
+        noise_level = self.noise_level_radar
 
         # Randomly removing and generating points
         trunc_df, ghost_df = self.FP_FN_gen(radar_df, noise_level)
@@ -1055,9 +1213,108 @@ class deform_data():
         return final_df
 
         
-    def deform_image(self,img):
-        pass
+    def deform_image(self,filename):
+        img = cv2.imread(filename)
+        blur_img = copy.deepcopy(img)
+        highexp_img = copy.deepcopy(img)
+        lowexp_img = copy.deepcopy(img)
+        noisy_img = copy.deepcopy(img)
 
+        img_list =[]
+        legends = []
+
+
+        blur_img = self.blur(blur_img)
+        highexp_img = self.high_exposure(highexp_img)
+        lowexp_img = self.low_exposure(lowexp_img)
+        noisy_img=self.add_noise(noisy_img)
+
+        foggy_img = self.add_fog(img)
+
+
+
+        #----------------display each type at current noise level in one plot-----------------
+
+        # disp_img_plt([img], title='original', block=True)
+        # disp_img_cv2(img, title='original', block=False)
+        # img_list.append(img)
+        # legends.append('original')
+
+        # # Blurring image
+        # blur_img = self.blur(blur_img)
+        # # disp_img_cv2(blur_img, title='blurred', block=False)
+        # img_list.append(blur_img)
+        # legends.append('blurry')
+
+        # # High exposure image
+        # highexp_img = self.high_exposure(highexp_img)
+        # # disp_img_cv2(highexp_img, title='highexp-noise', block=False)
+        # img_list.append(highexp_img)
+        # legends.append('high exposure')
+
+        # # Low exposure image
+        # lowexp_img = self.low_exposure(lowexp_img)
+        # # disp_img_cv2(lowexp_img, title='lowexp-noise', block=True)
+        # img_list.append(lowexp_img)
+        # legends.append('low exposure')
+        # disp_img_plt(imgs=img_list,title='Cluster',legends=legends,block=True)
+
+
+        #--------------------display a plot of each type at all noise levels----------------------
+        # img_list =[]
+        # legends = []
+        # img_list.append(img)
+        # legends.append('original')
+        # for i in range(1,11,1):
+        #     blur_img = copy.deepcopy(img)
+        #     self.noise_level_cam=i/10
+        #     blur_img = self.blur(blur_img)
+        #     img_list.append(blur_img)
+        #     legends.append('lvl: '+str(i/10))
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=False,save_path='image_tests/blur.png')
+
+        # img_list =[]
+        # legends = []
+        # img_list.append(img)
+        # legends.append('original')
+        # for i in range(1,11,1):
+        #     highexp_img = copy.deepcopy(img)
+        #     self.noise_level_cam=i/10
+        #     highexp_img = self.high_exposure(highexp_img)
+        #     img_list.append(highexp_img)
+        #     legends.append('lvl: '+str(i/10))
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,,title='high exposure levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='high exposure levels tests',legends=legends,block=False,save_path='image_tests/highexp.png')
+
+        # img_list =[]
+        # legends = []
+        # img_list.append(img)
+        # legends.append('original')
+        # for i in range(1,11,1):
+        #     lowexp_img = copy.deepcopy(img)
+        #     self.noise_level_cam=i/10
+        #     lowexp_img = self.low_exposure(lowexp_img)
+        #     img_list.append(lowexp_img)
+        #     legends.append('lvl: '+str(i/10))
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=False,save_path='image_tests/lowexp.png')
+
+        # img_list =[]
+        # legends = []
+        # img_list.append(img)
+        # legends.append('original')
+        # for i in range(10):
+        #     noisy_img = copy.deepcopy(img)
+        #     self.noise_level_cam=(i+1)/10
+        #     noisy_img = self.add_noise(noisy_img)
+        #     img_list.append(noisy_img)
+        #     legends.append('lvl: '+str(self.noise_level_cam))
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Gaussian noise levels tests',legends=legends,block=False,save_path='image_tests/Gauss_noise.png')
+
+
+        exit()
 
 
 
@@ -1075,6 +1332,10 @@ def create_parser():
     parser.add_argument('--sensor', type=str, default=None, help='Sensor type (see sensor_list) to focus on')
     parser.add_argument('--at_scene', type=str, default=None, help='Select specific scene to drop in')
     parser.add_argument('--keyframes', '-kf', action='store_true', default=False, help='Only use keyframes (no sweeps, 2Hz instead of 12)')
+
+    # Noise level
+    parser.add_argument('--n_level_cam', '-ncam', type=float, default=0.1, help='Noise level for cams')
+    parser.add_argument('--n_level_radar', '-nrad', type=float, default=0.1, help='Noise level for radars')
 
     # Output config
     parser.add_argument('--out_root', type=str, default='./noisy_nuScenes', help='Noisy output folder')
