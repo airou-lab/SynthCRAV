@@ -1131,7 +1131,8 @@ class deform_data():
     def add_fog(self,img):
 
 
-        
+        # a promising git repo :
+        # https://github.com/noahzn/FoHIS
 
         disp_img_cv2(image_fog, title='fog test', block=True)
 
