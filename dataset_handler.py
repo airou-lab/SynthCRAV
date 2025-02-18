@@ -19,7 +19,7 @@ import argparse
 
 from shutil import copyfile
 from pyquaternion import Quaternion
-from math import cos, sin
+from math import cos, sin, asin, acos, atan2, sqrt
 from mpl_toolkits.mplot3d import Axes3D
 
 import cv2
@@ -33,8 +33,9 @@ from nuscenes.utils.splits import create_splits_logs, create_splits_scenes
 from nuscenes.eval.tracking.evaluate import TrackingEval
 from nuscenes.eval.tracking.data_classes import TrackingConfig
 
-# Some utsefull functions
-from utils import *
+# Some useful functions
+from utils.utils import *
+from utils.fisheye import generate_fisheye_dist
 
 pd.set_option('display.max_rows', None)
 
@@ -224,7 +225,7 @@ def disp_all_sensor_mosaic(nusc_sample):
     plt.tight_layout()
     plt.show()
       
-def disp_radar_pts(points,title='',display=True,save_path=''):
+def disp_radar_pts(points,title='',display=True,store_path=''):
 
     # x = points['x'].to_numpy()
     # y = points['y'].to_numpy()
@@ -257,50 +258,16 @@ def disp_radar_pts(points,title='',display=True,save_path=''):
     if display:
         plt.show()
 
-    if save_path!='':
-        plt.savefig(save_path) 
+    if store_path!='':
+        plt.savefig(store_path) 
 
-def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, save_path=''):
+def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, store_path=''):
     # Display any given image in a matplotlib plot with automatic subplot sizing
-    # if not imgs:
-    #     pass
-
-    # if len(imgs)==1:
-    #     cols=1
-    # else:
-    #     cols=2
-
-    # if len(imgs)%2 == 0:
-    #     # len is pair
-    #     rows = int(len(imgs)/2)
-    # else:
-    #     rows = int((len(imgs)+1)/2)
 
     if not imgs or len(imgs)>(rows*cols):
         pass
 
-
-    # margin=50 # pixels
-    # spacing=35 # pixels
-    # dpi=100. # dots per inch
-
-    # w_im = np.shape(imgs[0])[1]
-    # h_im = np.shape(imgs[0])[0]
-
-    # n_imgs = len(imgs)
-
-    # width = (n_imgs*w_im+2*margin+spacing)/dpi
-    # height= (n_imgs*h_im+2*margin+spacing)/dpi
-
-    # left = margin/dpi/width #axes ratio
-    # bottom = margin/dpi/height
-    # wspace = spacing/float(width)
-
-    # fig, ax = plt.subplots(rows,cols)
     fig, ax = plt.subplots(rows,cols,figsize=(16, 9))
-    # fig, ax = plt.subplots(rows,cols,figsize=(width,height),dpi=dpi)
-    # fig.subplots_adjust(left=left, bottom=bottom, right=1.-left, top=1.-bottom, 
-    #                 wspace=wspace, hspace=wspace)
     ax = ax.flatten()
 
     if len(imgs)<rows*cols:
@@ -322,10 +289,10 @@ def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, save_pa
     plt.tight_layout(pad=0)
     plt.show(block=block)
 
-    if save_path!='':
-        plt.savefig(save_path) 
+    if store_path!='':
+        plt.savefig(store_path) 
 
-def disp_img_cv2(img,title,block=True, save_path=''):
+def disp_img_cv2(img,title,block=True, store_path=''):
     # Display any given image in a cv2 plot
     cv2.imshow(title,img)
     
@@ -341,8 +308,8 @@ def disp_img_cv2(img,title,block=True, save_path=''):
         # Close all windows
         cv2.destroyAllWindows()
 
-    if save_path!='':
-        cv2.imwrite(save_path,img)
+    if store_path!='':
+        cv2.imwrite(store_path,img)
 
 
 
@@ -364,6 +331,21 @@ def rot_z(theta):
     return np.array([[cos(theta), -sin(theta), 0],
                      [sin(theta),  cos(theta), 0],
                      [         0,           0, 1]])
+
+def polar_to_cart(r,theta):
+
+    x = r * cos(theta)
+    y = r * sin(theta)
+
+    return x,y
+
+def cart_to_polar(x,y):
+
+    theta = atan2(y,x)
+    r = sqrt(x**2 + y**2)
+
+    return r, theta
+
 
 
 
@@ -413,7 +395,7 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
                     radar_df = decode_pcd_file(filename)
 
-                    # print(radar_df)
+                    print(radar_df)
                     # print(sum(radar_df['vx'])/len(radar_df))
                     # input()
                     
@@ -457,8 +439,8 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
 
                     if args.disp_radar:
-                        disp_radar_pts(pts_OG,title='original',display=True, save_path='')
-                        disp_radar_pts(pts_new,title='new',display=True, save_path='')
+                        disp_radar_pts(pts_OG,title='original',display=True, store_path='')
+                        disp_radar_pts(pts_new,title='new',display=True, store_path='')
                         
                         # using open3d built in (no axis)
                         # print('Original point clound')
@@ -476,17 +458,18 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         # o3d.visualization.draw_geometries([dat])
 
                     if args.save_radar:
-                        # Save image by screenshot. Not a great way but didn't find anything better
+                        # Saving radar point cloud rendering in matplotlib and in open3d bird eyeview
                         mkdir_if_missing(newfoldername+'/imgs')
                         
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG.png')
-                        disp_radar_pts(pts_OG,title='original',display=False, save_path=image_path)
+                        # Saving in matplotlib with auto angling for 3d effect
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_OG.png')
+                        disp_radar_pts(pts_OG,title='original',display=False, store_path=image_path)
                         
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new.png')
-                        disp_radar_pts(pts_new,title='new',display=False, save_path=image_path)
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_new.png')
+                        disp_radar_pts(pts_new,title='new',display=False, store_path=image_path)
 
 
-
+                        # Save image by screenshot. Not a great way but apartently the only one 
                         dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
                         newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
 
@@ -496,7 +479,7 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         vis.add_geometry(dat)
                         vis.poll_events()
                         vis.update_renderer()
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_OG_open3d.png')
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_OG.png')
                         vis.capture_screen_image(image_path)
                         vis.destroy_window()
                         
@@ -504,7 +487,7 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         vis.add_geometry(newdat)
                         vis.poll_events()
                         vis.update_renderer()
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_new_open3d.png')
+                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_new.png')
                         vis.capture_screen_image(image_path)
                         vis.destroy_window()
 
@@ -727,25 +710,28 @@ class deform_data():
         # -Velocity
         # --Range: -400 km/h to +200 km/h (-leaving objects | +approximation)   --> -111.11 m/s to 55.55 m/s
         # --Resolution: 0.37 km/h far field, 0.43 km/h near range               --> 0.103 m/s ff, 0.119 m/s nr
-        # radar sensor bounding values
+        # 
+        # near range encompasses short and mid range
         
         # radar sensor bounding values of position
         self.radar_sensor_bounds = {'dist':{'range':{'min_range':0.2,
-                                                     'far_range':250,
-                                                     'near_mid_range':100, 
-                                                     'near_short_range':20
+                                                     'short_range':20,
+                                                     'mid_range':100, 
+                                                     'far_range':250
+                                                     
                                                     },
-                                            'ang':{'far_range':9, # long range beam is +/- 9 degrees
-                                                    'near_mid_range':45,
-                                                    'near_short_range':60
+                                            'ang':{'short_range':60,
+                                                   'mid_range':45,
+                                                   'far_range':9   # long range beam is +/- 9 degrees                                                    
                                                   },
-                                            'resolution':{'far_range':1.79,
-                                                          'near_range':0.39
+
+                                            'resolution':{'near_range':0.39,
+                                                          'far_range':1.79
                                                          }
                                             },
                                     'vel':{'range':[-111.11, 55.5],
-                                            'resolution':{'far_range':0.103,
-                                                          'near_range':0.119
+                                            'resolution':{'near_range':0.119,
+                                                          'far_range':0.103
                                                         }
                                             }
                                     }
@@ -785,15 +771,15 @@ class deform_data():
             alpha = math.degrees(math.atan2(y,x))   # calculating point angle from sensor in degrees 
             if self.verbose: print('Alpha:', alpha)
 
-            if x<=self.radar_sensor_bounds['dist']['range']['near_short_range']: 
+            if x<=self.radar_sensor_bounds['dist']['range']['short_range']: 
                 if self.verbose: print('Point is in near short-range')
-                if abs(alpha)>self.radar_sensor_bounds['dist']['ang']['near_short_range']:
+                if abs(alpha)>self.radar_sensor_bounds['dist']['ang']['short_range']:
                     if self.verbose: print('Point is OOB with angle:',alpha)
                     return False
 
-            elif x<=self.radar_sensor_bounds['dist']['range']['near_mid_range']: 
+            elif x<=self.radar_sensor_bounds['dist']['range']['mid_range']: 
                 if self.verbose: print('Point is in near mid-range')
-                if abs(alpha)>self.radar_sensor_bounds['dist']['range']['near_mid_range']:
+                if abs(alpha)>self.radar_sensor_bounds['dist']['range']['mid_range']:
                     if self.verbose: print('Point is OOB with angle:',alpha)
                     return False
 
@@ -844,102 +830,150 @@ class deform_data():
             if self.verbose: print('Within resolution')
             return True
 
-    def create_ghost_point(self, df, i):
-        if self.verbose:
-            print('Generating ghost point')
-            print('Using row %d as template:'%(i))
-            print('Original values: \tx:',df.loc[i,'x'],'\ty:', df.loc[i,'y'])
+    def create_ghost_point(self, num_ghosts, radar_df):
+        # Generating fake points
+        # To better simulate the reception of points the generation is made in polar coordinates
+        # Velocity is generated in cartesian coordinate as we don't have enough information to generate it in polar coordinates.
+        # For more realistic velocities we sample from the current objects' and compensate from ego velocity reconstruction 
+        ghost_df = pd.DataFrame(columns=radar_df.columns)
 
-        # Initialiazing point with inadmissible values
-        x_fake=0
-        y_fake=0
-        vx_fake=1000
-        vy_fake=1000
-
-        if self.verbose: print('Initial ghost point: \tx:',x_fake,'\ty:', y_fake, '\tx:',vx_fake,'\ty:', vy_fake)
-
-        # Controlling if point is realistic
-        while not (self.within_bound(x_fake,y_fake,vx_fake,vy_fake) and self.within_resolution(df, x_fake, y_fake)):
-            # maybe wrap this in a function later
-            x_shift = np.random.normal(0, self.radar_sensor_bounds['dist']['range']['far_range']/6)
-            y_shift = np.random.normal(0, 50) # theoretical max value for y is y_max = 70*tan(45)~=115 => 3sigmq = 115 => sigma = 115/3 ~=40 
-            x_fake = df.loc[i,'x'] + x_shift
-            y_fake = df.loc[i,'y'] + y_shift
-
-            # getting range for corresponding velocity resolution
-            if x_fake > self.radar_sensor_bounds['dist']['range']['near_mid_range'] :
-                rg = 'far_range'
-            else:
-                rg = 'near_range'
-
-            # Calculating velocity shift corresponding to position shift
-            vx_shift = self.radar_sensor_bounds['vel']['resolution'][rg] * x_shift
-            vy_shift = self.radar_sensor_bounds['vel']['resolution'][rg] * y_shift
-
-            vx_fake = df.loc[i,'vx'] + vx_shift
-            vy_fake = df.loc[i,'vy'] + vy_shift
+        for i in range(num_ghosts):
 
 
-            if self.verbose: print('Proposed ghost point: \tx:',x_fake,'\ty:', y_fake, '\tvx:',vx_fake,'\tvy:', vy_fake)
-        
-        # extracting ego motion from point_cloud, using it to re-create motion compensated fake points
-        vx_ego, vy_ego = self.get_ego_vel(df)
-        vx_fake_comp = vx_fake - vx_ego
-        vy_fake_comp = vy_fake - vy_ego
+            #---- Generating x,y,z coordinates ------
 
-        if self.verbose:
-            print('Original values: \tx:',df.loc[i,'x'], '\ty:', df.loc[i,'y'],\
-                                    '\tvx:',df.loc[i,'vx'], '\tvy:', df.loc[i,'vy'],\
-                                    '\tvx_comp:',df.loc[i,'vx_comp'], '\tvx_comp:', df.loc[i,'vx_comp'])
-            print('Retained points: \tx:',x_fake,'\ty:', y_fake, \
-                                    '\tvx:',vx_fake,'\tvy:', vy_fake,\
-                                    '\tvx_comp:',vx_fake_comp, '\tvx_comp:', vy_fake_comp)
+            # no need to check bounds as they are guaranteed by the uniform distribution
+            r = np.random.uniform(0.2,250)
 
-        return x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp
+            if r<=self.radar_sensor_bounds['dist']['range']['short_range']:    # short range
+                print('point in short range')
+                theta = np.random.uniform(-self.radar_sensor_bounds['dist']['ang']['short_range'],self.radar_sensor_bounds['dist']['ang']['short_range'])
+
+            elif r<=self.radar_sensor_bounds['dist']['range']['mid_range']:    # mid range
+                print('point in mid range')
+                theta = np.random.uniform(-self.radar_sensor_bounds['dist']['ang']['mid_range'],self.radar_sensor_bounds['dist']['ang']['mid_range'])
+
+            else: # far range
+                print('point in far range')
+                theta = np.random.uniform(-self.radar_sensor_bounds['dist']['ang']['far_range'],self.radar_sensor_bounds['dist']['ang']['far_range'])
+
+
+            x, y = polar_to_cart(r,theta)
+
+            print('r_fake:',r)
+            print('theta_fake:',theta)
+            print('x_fake:',x)
+            print('y_fake:',y)
+
             
-    def FP_FN_gen(self, radar_df, noise_level):
-        # generates rm_split % fake points and removes fake_spit % points from the dataframe
+            #---- Generating dynamic properties ------
+            dyn_prop = np.random.randint(0,8) # possible values are 0 to 7 included
+
+            # dynProp: Dynamic property of cluster to indicate if is moving or not.
+            # 0: moving
+            # 1: stationary
+            # 2: oncoming
+            # 3: stationary candidate
+            # 4: unknown
+            # 5: crossing stationary
+            # 6: crossing moving
+            # 7: stopped
+
+            if dyn_prop in [1, 3, 5, 7]:
+                # stationary objects
+                dyn = 'stationary'
+
+            elif dyn_prop == 0:
+                # moving but not incoming
+                dyn = 'moving'
+
+            elif dyn_prop == 2:
+                # oncoming (-x direction)
+                dyn = 'oncoming'
+
+            elif dyn_prop == 4:
+                # unknown
+                dyn = 'unknown'
+
+            elif dyn_prop == 6:
+                # crossing moving (lateral moving)
+                dyn = 'cross_moving'
+
+            print('point is:',dyn)
+
+            #---- Generating dynamic properties ------
+            # TODO instead of drawing from possible dyn prop draw from current out of dataset, then take properties out of similar dyn objs
+            print(radar_df[radar_df['dyn_prop'].isin([1, 3, 5, 7])][['vx','vy']])
+
+            # if dyn == 'stationary':
+
+
+            exit()
+
+            # if dyn == 'stationary':
+            #     # sample from static objects
+            #     static_list = radar_df[radar_df['']]
+
+            # vx = np.random()
+
+            # x  y  z  dyn_prop  id  rcs  vx  vy  vx_comp  vy_comp  is_quality_valid  ambig_state  x_rms  y_rms  invalid_state  pdh0  vx_rms  vy_rms
+
+            rcs = 0
+            vx=0
+            vy=0
+            vx_comp=0
+            vy_comp=0
+            x_rms=0
+            y_rms=0
+            invalid_state=0
+            pdh0=0
+            vx_rms=0
+            vy_rms=0
+
+            row = [x, y, 0.0, dyn_prop, 0, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
+
+# https://github.com/nutonomy/nuscenes-devkit/blob/05d05b3c994fb3c17b6643016d9f622a001c7275/python-sdk/nuscenes/utils/data_classes.py#L315
+# https://forum.nuscenes.org/t/detail-about-radar-data/173/5
+# https://forum.nuscenes.org/t/radar-vx-vy-and-vx-comp-vy-comp/283/4
+
+
+
+    def FP_FN_gen(self, radar_df):
+        # Simulating ghost points and missed points
 
         # Initializing new dataframes and variables
         subset_df = copy.deepcopy(radar_df)
         ghost_df = pd.DataFrame(columns=subset_df.columns)
         n_rows=len(radar_df)
 
-        # If no noise : return original dataset
-        if noise_level == 0:
-            return subset_df
-
-
         # Calculating chance of being dropped:
         # # Rule : 0% noise => 0%  chance of removal
         # #      100% noise => 75% chance of removal
-        drop_rate = 0.75*noise_level # we still want to keep points even at 100% noise
+        drop_rate = 0.75*self.noise_level_radar # we still want to keep points even at 100% noise
 
 
-        # Calculating chance of creating ghost point (chance for each point to be used to create a fake point, not necesserally outlier):
-        # # Rule : 0% noise => 0%  chance of ghost
-        # #      100% noise => 10% chance of ghost
-        ghost_rate = 0.20*noise_level # Realistically ghost points remain pretty rare
+        # Ghost points appearing rate is independant of the noise level
+        # => fixed, very small rate
+        ghost_rate = 3 # max amount of ghost points: 3
 
 
         #-------------------------------------Ghost points generation-------------------------------------
         # Should we try to create clusters and outliers ? random gen should do that on its own but uncontrolled
 
-        # Each row has a ghost_rate chance of being used to create a ghost point 
-        random_vals = np.random.rand(n_rows)
-        ghost_indices = np.where(random_vals <= ghost_rate)[0]
-        print('ghost_indices:',ghost_indices)
-        
-        if ghost_indices.tolist():
-            ghost_df = subset_df.iloc[ghost_indices]
-            for i in ghost_indices:
-                # Generating ghost points out of these real points
-                x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp = self.create_ghost_point(subset_df, i)
-                # Updating dataset values
-                ghost_df.loc[i,['x','y','vx','vy','vx_comp','vy_comp']]= [x_fake, y_fake, vx_fake, vy_fake, vx_fake_comp, vy_fake_comp]
-                # Recasting correct variable types
-                ghost_df = ghost_df.astype({'x': 'float32', 'y': 'float32', 'vx': 'float32', 'vy': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
+        # Randomly draws how many ghost points will appear in this sample from a uniform distribution U(0,ghost_rate+1)
+        num_ghosts = int(100 * ghost_rate * np.random.randint(low=0,high=ghost_rate+1))
 
+        #temporary for debug:
+        num_ghosts = 1
+        if self.verbose:
+            print('Generating %d ghost point'%(num_ghosts))
+
+        if num_ghosts:
+            # Generating random ghost points
+            ghost_df = self.create_ghost_point(num_ghosts, radar_df)
+            # # Recasting correct variable types
+            # ghost_df = ghost_df.astype({'x': 'float32', 'y': 'float32', 'vx': 'float32', 'vy': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
+        exit()
 
         #----------------------------------------Random points drop----------------------------------------
 
@@ -1062,7 +1096,7 @@ class deform_data():
 
         # Velocity 
         ## Getting range type for each points
-        rg_arr = ['far_range' if noise_arr['x'][i]>self.radar_sensor_bounds['dist']['range']['near_mid_range'] else 'near_range' for i in range(n_rows)]
+        rg_arr = ['far_range' if noise_arr['x'][i]>self.radar_sensor_bounds['dist']['range']['mid_range'] else 'near_range' for i in range(n_rows)]
 
         ## Calculating velocity shift corresponding to position shift
         noise_arr['vx'] = [self.radar_sensor_bounds['vel']['resolution'][rg] for rg in rg_arr] * noise_arr['x']
@@ -1084,17 +1118,25 @@ class deform_data():
 
     #--------------------------------------------------------Camera functions--------------------------------------------------------
     def blur(self,img):
+        # Blurring images using a convolution with a gaussian kernel
+        # Increasing noise level increases kernel size, from [(3x3),(21x21)]
 
-        blur_level = 10*self.noise_level_cam
-        ksize = max(3, int(2 * round(blur_level) + 1))
+        output_img = copy.deepcopy(img)
+
+        blur_level =2 * round(10*self.noise_level_cam)
+        ksize = max(3, int(blur_level + 1))
         sigma = blur_level 
 
-        output_img = cv2.GaussianBlur(img, (ksize, ksize), sigma)
+        output_img = cv2.GaussianBlur(output_img, (ksize, ksize), sigma)
         
         return output_img
 
     def high_exposure(self,img):
-        # creating high exposure with a gaussian kernel x 2 (gotta figure out why this happens)
+        # Creating high exposure with a gaussian kernel x (1+3xn)
+        # Increasing noise increases pixel intensity (n), intensity from [1,4]
+        
+        output_img = copy.deepcopy(img)
+
         gauss_kernel = (1/16) * np.array([[1,2,1],
                                           [2,4,2],
                                           [1,2,1]])
@@ -1104,31 +1146,53 @@ class deform_data():
         # noise @ 100% => 400% exposure (+300%)
         kernel=gauss_kernel*(1+3*self.noise_level_cam)
 
-        output_img = cv2.filter2D(src=img,ddepth=-1,kernel=kernel)
+        output_img = cv2.filter2D(src=output_img,ddepth=-1,kernel=kernel)
 
         return output_img
 
     def low_exposure(self,img):
-        # creating low exposure with a gaussian kernel / 2 (gotta figure out why this happens)
+        # Creating low exposure with a gaussian kernel x (1+3xn)
+        # Increasing noise decreases pixel intensity (n), intensity from [1,1/4]
+
+        output_img = copy.deepcopy(img)
+
         gauss_kernel = (1/16) * np.array([[1,2,1],
                                           [2,4,2],
                                           [1,2,1]])
 
         kernel=gauss_kernel/(1+3*self.noise_level_cam)
 
-        output_img = cv2.filter2D(src=img,ddepth=-1,kernel=kernel)
+        output_img = cv2.filter2D(src=output_img,ddepth=-1,kernel=kernel)
 
         return output_img
 
     def add_noise(self,img):
-        w = np.random.normal(0,self.noise_level_cam,img.shape).astype('uint8')
+        # Adding random zero mean Gaussian noise to image
+        # Simulates thermal or EM noise
+        # Increasing nois level increases noise std_dev (sigma) from [0,1]
 
-        output_img = cv2.add(img,w)
+        output_img = copy.deepcopy(img)
+        w = np.random.normal(0,self.noise_level_cam,output_img.shape).astype('uint8')
+
+        output_img = cv2.add(output_img,w)
+
+        return output_img
+
+    def superfish(self,img,auto_resize=False):
+        # Creating superfish distortion using modified code from https://github.com/Gil-Mor/iFish
+        # Distortion level from [0,1] (above causes image warping)
+
+        output_img = copy.deepcopy(img)
+        dist_level = self.noise_level_cam
+
+        output_img = generate_fisheye_dist(output_img,dist_level,auto_resize)
 
         return output_img
 
 
     def add_fog(self,img):
+        # TODO
+        output_img = copy.deepcopy(img)
 
 
         # a promising git repo :
@@ -1161,28 +1225,19 @@ class deform_data():
         # Ghost point generation goes from 0 to 20 % of dataset size (and need to be spaced out of other points from at least the resolution value)
         # Position and velocity random variables are between 0 and their maximum values
 
-
-        print('Original dataframe:')
-        print(radar_df)
-        
-        for row in range(len(radar_df)):
-            val = self.within_bound(radar_df.loc[row,'x'],radar_df.loc[row,'y'],radar_df.loc[row,'vx'],radar_df.loc[row,'vy'])
-            print(val)
-            if not val:
-                print(radar_df.iloc[row])
-                # input()
-
-        # noise level dial (0.0 - 1.0)
-        noise_level = self.noise_level_radar
+        if self.verbose:
+            print('Original dataframe:')
+            print(radar_df)
 
         # Randomly removing and generating points
-        trunc_df, ghost_df = self.FP_FN_gen(radar_df, noise_level)
+        trunc_df, ghost_df = self.FP_FN_gen(radar_df)
 
-        print('truncated dataframe:\n',trunc_df)
-        print('ghost dataframe:\n',ghost_df)
+        if self.verbose:
+            print('truncated dataframe:\n',trunc_df)
+            print('ghost dataframe:\n',ghost_df)
 
         # Adding noise on remaining points (non-generated)
-        noisy_df = self.gaussian_noise_gen(trunc_df, noise_level)
+        noisy_df = self.gaussian_noise_gen(trunc_df, self.noise_level_radar)
 
         if self.verbose:
             compare_df = pd.DataFrame(columns=['x_OG','x_new','y_OG','y_new','vx_OG','vx_new','vy_OG','vy_new','vx_comp_OG','vx_comp_new','vy_comp_OG','vy_comp_new'])
@@ -1215,22 +1270,25 @@ class deform_data():
 
         
     def deform_image(self,filename):
-        img = cv2.imread(filename)
-        blur_img = copy.deepcopy(img)
-        highexp_img = copy.deepcopy(img)
-        lowexp_img = copy.deepcopy(img)
-        noisy_img = copy.deepcopy(img)
-
+        # Initializaing variables
         img_list =[]
         legends = []
+        
+        # Loading image from filename        
+        img = cv2.imread(filename)
+
+        # Generating various noises
+        blur_img = self.blur(img)
+        highexp_img = self.high_exposure(img)
+        lowexp_img = self.low_exposure(img)
+        noisy_img=self.add_noise(img)
+
+        superfish_img = self.superfish(img)
 
 
-        blur_img = self.blur(blur_img)
-        highexp_img = self.high_exposure(highexp_img)
-        lowexp_img = self.low_exposure(lowexp_img)
-        noisy_img=self.add_noise(noisy_img)
 
-        foggy_img = self.add_fog(img)
+        # foggy_img = self.s(img)
+
 
 
 
@@ -1260,59 +1318,88 @@ class deform_data():
         # legends.append('low exposure')
         # disp_img_plt(imgs=img_list,title='Cluster',legends=legends,block=True)
 
+        # # Noisy image
+        # noisy_img = self.add_noise(img)
+        # disp_img_cv2(noisy_img, title='gaussian-noise', block=True)
+
+        # # Superfish image
+        # superfish_img = self.superfish(img)
+        # disp_img_cv2(superfish_img, title='superfish-distort', block=True)
+
 
         #--------------------display a plot of each type at all noise levels----------------------
-        # img_list =[]
-        # legends = []
-        # img_list.append(img)
-        # legends.append('original')
-        # for i in range(1,11,1):
-        #     blur_img = copy.deepcopy(img)
-        #     self.noise_level_cam=i/10
-        #     blur_img = self.blur(blur_img)
-        #     img_list.append(blur_img)
-        #     legends.append('lvl: '+str(i/10))
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=False,save_path='image_tests/blur.png')
-
-        # img_list =[]
-        # legends = []
-        # img_list.append(img)
-        # legends.append('original')
-        # for i in range(1,11,1):
-        #     highexp_img = copy.deepcopy(img)
-        #     self.noise_level_cam=i/10
-        #     highexp_img = self.high_exposure(highexp_img)
-        #     img_list.append(highexp_img)
-        #     legends.append('lvl: '+str(i/10))
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,,title='high exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='high exposure levels tests',legends=legends,block=False,save_path='image_tests/highexp.png')
-
-        # img_list =[]
-        # legends = []
-        # img_list.append(img)
-        # legends.append('original')
-        # for i in range(1,11,1):
-        #     lowexp_img = copy.deepcopy(img)
-        #     self.noise_level_cam=i/10
-        #     lowexp_img = self.low_exposure(lowexp_img)
-        #     img_list.append(lowexp_img)
-        #     legends.append('lvl: '+str(i/10))
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=False,save_path='image_tests/lowexp.png')
-
-        # img_list =[]
-        # legends = []
-        # img_list.append(img)
-        # legends.append('original')
+        # # Blurring image
+        # img_list =[img]
+        # legends = ['original']
         # for i in range(10):
-        #     noisy_img = copy.deepcopy(img)
-        #     self.noise_level_cam=(i+1)/10
-        #     noisy_img = self.add_noise(noisy_img)
-        #     img_list.append(noisy_img)
-        #     legends.append('lvl: '+str(self.noise_level_cam))
+        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.blur(img))                                             # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/blur.png')
+        
+        
+        # # High exposure image
+        # img_list =[img]
+        # legends = ['original']
+        # for i in range(10):
+        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.high_exposure(img))                                    # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,,title='high exposure levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='high exposure levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/highexp.png')
+        
+
+        # # Low exposure image
+        # img_list =[img]
+        # legends = ['original']
+        # for i in range(10):
+        #     self.noise_level_cam=(i+1)/10                                               # convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.low_exposure(img))                                     # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
         # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Gaussian noise levels tests',legends=legends,block=False,save_path='image_tests/Gauss_noise.png')
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/lowexp.png')
+
+        
+        # # Noisy image
+        # img_list =[img]
+        # legends = ['original']
+        # for i in range(10):
+        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.add_noise(img))                                        # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Gaussian noise levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/Gauss_noise.png')
+
+
+        # # Superfish image
+        # img_list =[img]
+        # legends = ['original']
+        # for i in range(10):
+        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.superfish(img))                                        # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish super high distortion levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish distortion levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/superfish.png')
+
+
+        # # Superfish image
+        # img_list =[img]
+        # legends = ['original']
+        # for i in range(10):
+        #     if i==4:
+        #         continue
+        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
+        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
+        #     img_list.append(self.superfish(img,True))                                   # Apply and store transform at level i/100
+        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
+        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish super high distortion levels tests',legends=legends,block=True)
+        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish distortion levels tests with auto-resize',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/superfish_resize.png')
 
 
         exit()
@@ -1347,7 +1434,7 @@ def create_parser():
     parser.add_argument('--save_radar', action='store_true', default=False, help='Save screenshot of original Radar point cloud and new one')
     parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
     parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
-    parser.add_argument('--verbose', action='store_true', default=False, help='Verbosity on|off')
+    parser.add_argument('--verbose', '-v', action='store_true', default=False, help='Verbosity on|off')
 
     # Other
     parser.add_argument('--debug', action='store_true', default=False, help='Debug argument')
