@@ -4,13 +4,10 @@
 # git         : https://github.com/MathisMM            
 #-----------------------------------------------
 
-import os, shutil
+import os
 # import sys 
-import json 
 import numpy as np
-import pandas as pd
-import random
-from typing import List, Dict, Any, Tuple
+from typing import Tuple
 
 import colorsys
 import cv2
@@ -19,10 +16,8 @@ import cv2
 from nuscenes import NuScenes
 from nuscenes.utils.data_classes import Box
 from nuscenes.utils.geometry_utils import view_points, transform_matrix
-from nuscenes.eval.tracking.utils import metric_name_to_print_format
 
-global sampling_freq
-# sampling_freq = 12 # default value of sampling frequency with sweeps
+
 
 
 # Misc
@@ -45,13 +40,6 @@ def get_data_info(data_root,split):
     elif 'test' in split:
         return '_test'
 
-def bckp_res(res,dataset_type):
-    # Copy the contents of ./results/track_output or ./logs/tracklog(_mini) for bckp
-    bckp_folder_name = str((datetime.now()+ timedelta(hours=-6)).strftime("%b-%d-%Y %H:%M:%S")).replace(' ','_').split('.')[0]+dataset_type
-    bckp_path = os.path.join(res.split('/')[1],bckp_folder_name)
-
-    shutil.copytree(res, bckp_path)
-    print('backed-up at:',bckp_path)
 
 
 # nuScenes functions utils
