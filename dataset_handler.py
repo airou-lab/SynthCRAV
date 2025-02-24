@@ -365,7 +365,6 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
     # generate a gradient of noise levels in matplotlib subplot
     deformer.radar_ghost_max=0  # debug, TODO: remove
 
-    df_og = copy.deepcopy(radar_df)
     token = filename.split('/')[-1].split('.')[0]
     output_folder = os.path.join(args.out_root,'samples',sensor,'noise_lvl',token)
     mkdir_if_missing(output_folder)
@@ -375,7 +374,7 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
     dat = o3d.io.read_point_cloud(filename)
 
     # Saving original pcd in matplotlib with auto angling for 3d effect
-    pts_OG = np.asarray(dat.points)
+    pts_OG = copy.deepcopy(np.asarray(dat.points))
     pts_list=[pts_OG]
         
     # temp save of o3d visualization
@@ -386,9 +385,9 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
     vis.poll_events()
     vis.update_renderer()
     vis.capture_screen_image(image_path)
-    vis.destroy_window()
 
     for noise_lvl in range (1,11,1):
+        df_og = copy.deepcopy(radar_df)
         deformer.noise_level_radar = (noise_lvl+1)/10
         print('noise level at %f %%'%(deformer.noise_level_radar * 100))
         newfilename = os.path.join(output_folder,token+'_'+str(noise_lvl)+'.pcd')
@@ -401,30 +400,41 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
         newdat = o3d.io.read_point_cloud(newfilename)
 
         # Converting to numpy format
-        pts_new = np.asarray(newdat.points)
+        pts_new = copy.deepcopy(np.asarray(newdat.points))
         pts_list.append(pts_new)
 
         # Temp save of o3d visualization
         image_path = os.path.join(output_folder,'o3d_'+str(noise_lvl)+'.png')
         newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
-        vis.create_window() 
+        vis.clear_geometries()
         vis.add_geometry(newdat)
         vis.poll_events()
         vis.update_renderer()
         vis.capture_screen_image(image_path)
-        vis.destroy_window()
+
+    vis.destroy_window()
 
     # Gather o3d images in a list
     imlist=[]
+    name_list=[]
     for item in os.listdir(output_folder):
-        if token in item and item[-3:]=='png':
-            # previous grid generation
-            os.remove(os.path.join(output_folder,item))
-
-        elif item[-3:]=='png' and item[:3]=='o3d':
-            imlist.append(cv2.imread(os.path.join(output_folder,item)))
-            os.remove(os.path.join(output_folder,item))
+        # remove previously generated files
+        if item[-3:]=='png':
+            if (token in item) or ('comp' in item): 
+                # previous grid generation
+                os.remove(os.path.join(output_folder,item))
     
+    for item in os.listdir(output_folder):
+        # add newly generated files      
+        if item[-3:]=='png' and item[:3]=='o3d':
+            name_list.append(item)
+    
+    for i in range(len(name_list)):
+        name = 'o3d_'+str(i)+'.png'
+        imlist.append(cv2.imread(os.path.join(output_folder,name)))
+
+
+    # Open3D reconstruction and saving in a subplot:
     fig, ax = plt.subplots(3,4,figsize=(16, 9))
     ax = ax.flatten()
 
@@ -437,6 +447,14 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
             ax[i].set_title('original')
         else:
             ax[i].set_title('lvl: '+str(i/10))
+        # ax[i].axis('off')
+        ax[i].set_xticks([])
+        ax[i].set_yticks([])
+        ax[i].set_xticklabels([])
+        ax[i].set_yticklabels([])
+
+        for spine in ax[i].spines.values():
+            spine.set_edgecolor('black')
     
     ax[11].axis('off')
     
@@ -447,7 +465,7 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
     store_path = os.path.join(output_folder,'o3d_'+token+'.png')
 
     plt.savefig(store_path)
-    plt.close()    
+    plt.close()
 
 
     # matplotlib 3D reconstruction and saving in 3d plots:
@@ -486,7 +504,110 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
     store_path = os.path.join(output_folder,'plt_'+token+'.png')
     
     plt.savefig(store_path) 
-    plt.close()    
+    plt.close()
+
+
+    for i,img in enumerate(imlist):
+
+        # Open3D reconstruction and saving in a subplot:
+        fig, ax = plt.subplots(1,2,figsize=(16, 9))
+        ax = ax.flatten()
+
+        # correct color scale as images are loaded by openCV
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        
+        if i==0:
+            continue
+        else:
+            ax[0].imshow(imlist[0])
+            ax[1].imshow(img)
+
+            ax[0].set_title('original')
+            ax[1].set_title('lvl: '+str(i/10))
+
+        ax[0].set_xticks([])
+        ax[0].set_yticks([])
+        ax[0].set_xticklabels([])
+        ax[0].set_yticklabels([])
+
+        ax[1].set_xticks([])
+        ax[1].set_yticks([])
+        ax[1].set_xticklabels([])
+        ax[1].set_yticklabels([])
+
+        for spine in ax[0].spines.values():
+            spine.set_edgecolor('black')
+
+        for spine in ax[1].spines.values():
+            spine.set_edgecolor('black')
+            
+        fig.suptitle('Noise levels for token: '+token)
+        
+        plt.tight_layout(pad=0)
+        
+        store_path = os.path.join(output_folder,'o3d_comp_'+str(i)+'.png')
+
+        plt.savefig(store_path)
+        plt.close()
+
+
+
+    for i,points in enumerate(pts_list):
+        if i==0:
+            continue
+
+        fig = plt.figure(figsize=(16, 9))
+
+        ax = fig.add_subplot(121, projection='3d')
+
+        x = pts_list[0][:,0]
+        y = pts_list[0][:,1]
+        z = pts_list[0][:,2]
+
+        # Plot the 3D points
+        ax.scatter(x, y, z, c='blue', marker='o')
+
+        # Set labels for the axes
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+
+        # set elevation angle view
+        ax.view_init(elev=40, azim=180)
+        
+        ax.set_title('original')
+
+
+
+        ax = fig.add_subplot(122, projection='3d')
+
+        x = points[:,0]
+        y = points[:,1]
+        z = points[:,2]
+
+        # Plot the 3D points
+        ax.scatter(x, y, z, c='blue', marker='o')
+
+        # Set labels for the axes
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+
+        # set elevation angle view
+        ax.view_init(elev=40, azim=180)
+        
+        ax.set_title('lvl: '+str(i/10))
+
+
+
+        # Set title for the plot
+        fig.suptitle('Noise levels for token: '+token)
+        
+        store_path = os.path.join(output_folder,'plt_comp_'+str(i)+'.png')
+        
+        plt.savefig(store_path) 
+        plt.close()
 
 
     exit()
@@ -573,7 +694,8 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
                     radar_df = decode_pcd_file(filename)
 
-                    noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
+                    if args.gen_lvl_grad_img:
+                        noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
 
 
 
@@ -1083,9 +1205,9 @@ class deform_data():
 
                        
             #---- RCS value ------
-            # sorting the dataframe by rcs values and taking the lowest 50% values
+            # sorting the dataframe by rcs values and taking the lowest 25% values
             # then take uniform distribution amongst all
-            rcs_dist = radar_df.sort_values('rcs')['rcs'][:int(len(radar_df)/2)]
+            rcs_dist = radar_df.sort_values('rcs')['rcs'][:int(len(radar_df)*0.25)]
             if len(rcs_dist)>10:
                 rcs = np.random.choice(rcs_dist.to_list())
             else:
@@ -1682,6 +1804,7 @@ def create_parser():
     parser.add_argument('--save_radar', action='store_true', default=False, help='Save screenshot of original Radar point cloud and new one')
     parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
     parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
+    parser.add_argument('--gen_lvl_grad_img', action='store_true', default=False, help='generate output files for multiple noise levels')
     parser.add_argument('--verbose', '-v', action='store_true', default=False, help='Verbosity on|off')
 
     # Other
@@ -1727,5 +1850,7 @@ if __name__ == '__main__':
 
     # Dataset parser
     parse_nusc_keyframes(nusc, sensors, args)
+
+    #TODO : generate_dataset() wrapper
 
     exit('end of script')
