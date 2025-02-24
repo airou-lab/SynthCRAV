@@ -161,47 +161,116 @@ pd.set_option('display.max_rows', None)
 
 #     return r, theta
 
-# for item in os.listdir('./noisy_nuScenes/samples/RADAR_FRONT/examples/'):
-#     df = pd.read_excel('./noisy_nuScenes/samples/RADAR_FRONT/examples/'+item)
+for item in os.listdir('./noisy_nuScenes/examples/RADAR/'):
+    df = pd.read_csv('./noisy_nuScenes/examples/RADAR/'+item)
 
-#     for i in range(len(df)):
-#         x,y,vx,vy,vx_comp,vy_comp = df.loc[i,['x','y','vx','vy','vx_comp','vy_comp']]
+    for i in range(len(df)):
+        x,y,vx,vy,vx_comp,vy_comp = df.loc[i,['x','y','vx','vy','vx_comp','vy_comp']]
         
-#         r = np.array([x,y])
-#         v = np.array([vx,vy])
-#         v_comp = np.array([vx_comp,vy_comp])
+        x=10
+        y=0
+        vrx=-9.5
+        vry=0
 
-#         r_hat = r/(sqrt(r[0]**2+r[1]**2))
-#         v_hat = v/(sqrt(v[0]**2+v[1]**2))
-#         v_comp_hat = v_comp/(sqrt(v_comp[0]**2+v_comp[1]**2))
+        v_ego_x = 9
+        v_ego_y = 0
 
-#         vr_vect = (np.dot(v,r_hat))*r_hat
+        r_vect = np.array([x,y])
+        r_mag = sqrt(x**2+y**2)
+        r_hat = r_vect/r_mag
 
-#         v_comp = np.array((vx_comp,vy_comp))
-
-#         v_ego = vr_vect + v_comp
-
-#         vr_vect_hat = vr_vect/(sqrt(vr_vect[0]**2+vr_vect[1]**2))
-#         v_compt_hat = v_comp/(sqrt(v_comp[0]**2+v_comp[1]**2))
+        theta = atan2(y,x)
 
 
-#         v_ego_mag = sqrt(v_ego[0]**2+v_ego[1]**2)
+        vr = np.array([vrx,vry])
+        v_ego = np.array([v_ego_x,v_ego_y])
 
-#         print(v)
-#         print(vr_vect)
-#         print(v_comp)
-#         print(v_ego)
+        print('theta:',theta)
+        print('vr:',vr)
+        print('v_ego:',v_ego)
+        print('r_vect:',r_vect)
+        print('r_mag:',r_mag)
+        print('r_hat:',r_hat)
+        print('np.dot(v_ego,r_hat):',np.dot(v_ego,r_hat))
 
-#         # print(df.loc[i])
-#         # print(np.dot(r_hat,v_hat))
-#         # print(np.dot(r_hat,v_comp_hat))
-#         # print(np.dot(v_hat,v_comp_hat))
-#         # print(np.dot(v_hat,v_comp_hat)>0)
+        print(vr-(v_ego*r_hat))
 
-#         input()
+        exit()
 
 
 
+        theta = atan2(y,x)
+        assert cos(theta)!=0,'cos'
+
+        r_vect = np.array([x,y])
+        r_mag = sqrt(x**2+y**2)
+        r_hat = r_vect/r_mag
+
+        v_vect = np.array([vx,vy])
+        v_mag = sqrt(vx**2+vy**2)
+
+        v_comp_vect = np.array((vx_comp,vy_comp))
+        v_comp_mag = sqrt(vx_comp**2+vy_comp**2)
+        
+        vr_vect = (np.dot(v_vect,r_hat))*r_hat
+        vr_mag = sqrt(vr_vect[0]**2+vr_vect[1]**2)
+
+
+        if v_mag and v_comp_mag and vr_mag:
+            v_hat= v_vect/v_mag
+            vr_hat = vr_vect/vr_mag 
+            v_comp_hat= v_comp_vect/v_comp_mag
+            
+            v_ego = Vr
+
+            # print(np.dot(vr_hat,r_hat))
+            # print(np.dot(v_comp_hat,r_hat))
+            # print(np.dot(vr_hat,v_comp_hat))
+
+            # print(vr_vect,'\t',r_vect,'\t',v_comp)
+            input()
+
+
+
+
+
+        # v = np.array([vx,vy])
+        # v_comp = np.array([vx_comp,vy_comp])
+
+        # v_comp_hat = v_comp/(sqrt(v_comp[0]**2+v_comp[1]**2))
+
+        # vr_vect = (np.dot(v,r_hat))*r_hat
+
+        # v_comp = np.array((vx_comp,vy_comp))
+
+        # v_ego = vr_vect + v_comp
+
+        # vr_vect_hat = vr_vect/(sqrt(vr_vect[0]**2+vr_vect[1]**2))
+        # v_compt_hat = v_comp/(sqrt(v_comp[0]**2+v_comp[1]**2))
+
+
+        # v_ego_mag = sqrt(v_ego[0]**2+v_ego[1]**2)
+
+        # print(v)
+        # print(vr_vect)
+        # print(v_comp)
+        # print(v_ego)
+
+        # # print(df.loc[i])
+        # # print(np.dot(r_hat,v_hat))
+        # # print(np.dot(r_hat,v_comp_hat))
+        # # print(np.dot(v_hat,v_comp_hat))
+        # # print(np.dot(v_hat,v_comp_hat)>0)
+
+        # input()
+
+
+
+
+
+
+
+exit()
 
 from dataset_handler import *
 # compare_df = pd.DataFrame(columns=['x_OG','x_new','y_OG','y_new','vx_OG','vx_new','vy_OG','vy_new','vx_comp_OG','vx_comp_new','vy_comp_OG','vy_comp_new'])

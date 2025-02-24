@@ -697,9 +697,6 @@ def parse_nusc_keyframes(nusc, sensors, args):
                     if args.gen_lvl_grad_img:
                         noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
 
-
-
-                    print(radar_df)
                     
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
@@ -1119,17 +1116,28 @@ class deform_data():
             return True
 
     def create_ghost_point(self, num_ghosts, radar_df):
-        # Generating fake points
-        # To better simulate the reception of points the generation is made in polar coordinates
-        # Velocity is generated in cartesian coordinate as we don't have enough information to generate it in polar coordinates.
-        # For more realistic velocities we sample from the current objects' and compensate from ego velocity reconstruction 
+        '''
+        Generating fake points
+        To better simulate the reception of points the generation is made in polar coordinates
+        Velocity is generated in cartesian coordinate as we don't have enough information to generate it in polar coordinates.
+        For more realistic velocities we sample from the current objects' and compensate from ego velocity reconstruction 
+
+        Note on position generation: no need to check bounds as they are guaranteed by the uniform distribution
+        '''
+
+        # Initializing output df
         ghost_df = pd.DataFrame(columns=radar_df.columns)
 
         for i in range(num_ghosts):
             #---- Generating x,y,z coordinates ------
 
-            # no need to check bounds as they are guaranteed by the uniform distribution
-            r = np.random.uniform(0.2,250)
+            # We want to avoid having easily-removable outliers
+            max_range=max(radar_df['x'].to_numpy()) + 10 # range is withing sample distribution with a 10m additional margin
+            if max_range+10>self.radar_sensor_bounds['dist']['range']['far_range']: 
+                # max range cannot exceed radar actual bounds 
+                max_range = self.radar_sensor_bounds['dist']['range']['far_range']
+
+            r = np.random.uniform(0.2,max_range)
 
             if r<=self.radar_sensor_bounds['dist']['range']['short_range']:    # short range
                 print('point in short range')
@@ -1179,18 +1187,45 @@ class deform_data():
             calculations.
             '''
 
-            # Sampling from a known distribtion remains the safest option
-            id = np.random.choice(radar_df.index.to_list())
-            vx = radar_df.loc[id,'vx']
-            vy = radar_df.loc[id,'vy']
+            '''
+            Reminder: radars only measure a radial velocity, i.e. the projection of the relative velocity on the line of sight from the radar to the point.
+            The vx and vy values are the components of the relative velocity, which is extracted by the radar by unknown methods
+            vx_comp and vy_comp are the components of the motion-compensated radial velocity. The compensation process itself is unknown.
+            '''
+
+            # Because the process to acquire vx and vy is unknown, we can only sample a couple from the currrent distribtion
+            ID = np.random.choice(radar_df.index.to_list()) # this will also be useful for other parameters
+            vx = radar_df.loc[ID,'vx']
+            vy = radar_df.loc[ID,'vy']
+
+            v_vect = np.array((vx,vy))
+            v_mag = sqrt(vx**2+vy**2)
+            if v_mag !=0 : 
+                v_hat = v_vect/v_mag
+            else:
+                v_hat = v_vect  # null vector
+
+            r_vect = np.array((x,y))
+            # r_mag = r # r = ||x,y||, r>0
+            r_hat = r_vect/r
+
+            # Vr (Radial velocity) is a projection of v_vect on r_vect
+            vr_vect = (np.dot(v_vect,r_hat))*r_hat
+            vr_mag = sqrt(vr_vect[0]**2+vr_vect[1]**2)
+
+            # Calculating projection angle between v and vr
+            psi = atan2(np.cross(v_vect,vr_vect),np.dot(v_vect,vr_vect))
+
+
+
 
             # v_comp = v - v_ego
             vx_ego, vy_ego = self.get_ego_vel(radar_df) 
             vx_comp = vx - vx_ego
             vy_comp = vy - vy_ego
             
+            
             #---- Generating dynamic properties ------
-           
             # dynProp: Dynamic property of cluster to indicate if is moving or not.
             # 0: moving
             # 1: stationary
@@ -1201,7 +1236,7 @@ class deform_data():
             # 6: crossing moving
             # 7: stopped
             # We retrieve dynamic property of the point based of the line we used to get v_x and v_y
-            dyn_prop = radar_df.loc[id,'dyn_prop']
+            dyn_prop = radar_df.loc[ID,'dyn_prop']
 
                        
             #---- RCS value ------
@@ -1253,36 +1288,20 @@ class deform_data():
             pdh0 = np.digitize(pdh0_val, bins) + 1  # Map to category (1 to 7)
             
             # x  y  z  dyn_prop  id  rcs  vx  vy  vx_comp  vy_comp  is_quality_valid  ambig_state  x_rms  y_rms  invalid_state  pdh0  vx_rms  vy_rms
-            row = [x, y, 0.0, dyn_prop, id, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
+            row = [x, y, 0.0, dyn_prop, ID, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
             
             ghost_df.loc[i]=row
 
         return ghost_df
-
-
-# https://github.com/nutonomy/nuscenes-devkit/blob/05d05b3c994fb3c17b6643016d9f622a001c7275/python-sdk/nuscenes/utils/data_classes.py#L315
-# https://forum.nuscenes.org/t/detail-about-radar-data/173/5
-# https://forum.nuscenes.org/t/radar-vx-vy-and-vx-comp-vy-comp/283/4
-
-
 
     def FP_FN_gen(self, radar_df):
         # Simulating ghost points and missed points
 
         # Initializing new dataframes and variables
         subset_df = copy.deepcopy(radar_df)
-        ghost_df = pd.DataFrame(columns=subset_df.columns)
         n_rows=len(radar_df)
 
-        # Calculating chance of being dropped:
-        # # Rule : 0% noise => 0%  chance of removal
-        # #      100% noise => 75% chance of removal
-        # drop_rate = 0.75*self.noise_level_radar # we still want to keep points even at 100% noise
-
-
         #-------------------------------------Ghost points generation-------------------------------------
-        # Should we try to create clusters and outliers ? random gen should do that on its own but uncontrolled
-
         # Randomly draws how many ghost points will appear in this sample from a uniform distribution U(0,ghost_rate+1)
         num_ghosts = np.random.randint(low=0,high=self.radar_ghost_max+1)
 
@@ -1292,12 +1311,10 @@ class deform_data():
         if num_ghosts:
             # Generating random ghost points
             ghost_df = self.create_ghost_point(num_ghosts, radar_df)
-            # # Recasting correct variable types
-            # ghost_df = ghost_df.astype({'x': 'float32', 'y': 'float32', 'vx': 'float32', 'vy': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
 
-        if self.verbose:
-            print('ghost points:')
-            print(ghost_df)
+            if self.verbose:
+                print('ghost points:')
+                print(ghost_df)
 
 
         #----------------------------------------Random points drop----------------------------------------
@@ -1383,10 +1400,6 @@ class deform_data():
                     # point @ 60° and above (possible physical fluctuations)
                     max_ang_acc = self.radar_ang_accuracy['near_range']['60']
             
-            # Promising paper for impact of rcs fluctuation on accuracy :
-            # https://ieeexplore.ieee.org/abstract/document/55565
-
-
             # for now:
             # Increasing sigma as noise level goes up.
             # Realistically this should also go up with rcs value
@@ -1432,10 +1445,12 @@ class deform_data():
             v_mag = sqrt(vx**2+vy**2) # v_mag is the norm of v_vect, alpha is the angle between vx and v_mag
             if v_mag!=0:
                 v_hat = v_vect/v_mag # normalized velocity vector
+            else:
+                v_hat = v_vect  # null vector
 
             # Creating a line-of-sight (LOS) vector
             r_vect = np.array((x,y)) # vector of point-to-radar axis from the origin (the radar)
-            # r_mag = r              # |r|
+            # r_mag = r              # already r = ||x,y||
             r_hat = r_vect/r         # normalized r, r always > 0
 
             # The radar actually measures V_R (Radial velocity) which is a projection of v_vect on the LOS axis
@@ -1555,7 +1570,6 @@ class deform_data():
         output_img = generate_fisheye_dist(output_img,dist_level,auto_resize)
 
         return output_img
-
 
     def add_fog(self,img):
         # TODO
@@ -1854,3 +1868,26 @@ if __name__ == '__main__':
     #TODO : generate_dataset() wrapper
 
     exit('end of script')
+
+
+
+'''
+Running command:
+python dataset_handler.py -kf --sensor <SENSOR> -v
+
+
+some reading :
+
+https://github.com/nutonomy/nuscenes-devkit/blob/05d05b3c994fb3c17b6643016d9f622a001c7275/python-sdk/nuscenes/utils/data_classes.py#L315
+https://forum.nuscenes.org/t/detail-about-radar-data/173/5
+https://forum.nuscenes.org/t/radar-vx-vy-and-vx-comp-vy-comp/283/4
+https://conti-engineering.com/wp-content/uploads/2020/02/ARS-408-21_EN_HS-1.pdf
+
+# Promising paper for impact of rcs fluctuation on accuracy :
+https://ieeexplore.ieee.org/abstract/document/55565
+
+
+https://github.com/Gil-Mor/iFish
+https://github.com/noahzn/FoHIS
+
+'''
