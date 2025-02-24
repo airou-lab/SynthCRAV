@@ -12,15 +12,15 @@ import pandas as pd
 import open3d as o3d
 import math
 import random
-import pcl
+# import pcl
 import struct
 import copy
 import argparse
 
 from shutil import copyfile
 from pyquaternion import Quaternion
-from math import cos, sin, asin, acos, atan2, sqrt
-from mpl_toolkits.mplot3d import Axes3D
+from math import cos, sin, asin, acos, atan2, sqrt, radians, degrees
+# from mpl_toolkits.mplot3d import Axes3D
 
 import cv2
 import matplotlib.pyplot as plt
@@ -30,8 +30,6 @@ from nuscenes import NuScenes, NuScenesExplorer
 from nuscenes.utils.geometry_utils import transform_matrix
 from nuscenes.utils.data_classes import Box, RadarPointCloud
 from nuscenes.utils.splits import create_splits_logs, create_splits_scenes
-from nuscenes.eval.tracking.evaluate import TrackingEval
-from nuscenes.eval.tracking.data_classes import TrackingConfig
 
 # Some useful functions
 from utils.utils import *
@@ -311,7 +309,187 @@ def disp_img_cv2(img,title,block=True, store_path=''):
     if store_path!='':
         cv2.imwrite(store_path,img)
 
+def save_radar_pointcloud(newfoldername,filename,pts_OG,pts_new,dat,newdat):
+    # Saving radar point cloud rendering in matplotlib and in open3d bird eyeview
+    mkdir_if_missing(newfoldername+'/imgs')
+    
+    # Saving in matplotlib with auto angling for 3d effect
+    image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_OG.png')
+    disp_radar_pts(pts_OG,title='original',display=False, store_path=image_path)
+    
+    image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_new.png')
+    disp_radar_pts(pts_new,title='new',display=False, store_path=image_path)
 
+
+    # Applying rotation to data points
+    # # nuScenes radar coordinates    -->        Carthesian coordinates
+    # #     z  x                                       y 
+    # #     | /                       -->              | 
+    # # y___|/                                        z|__x
+    # # x forward, y left, z up                       x right, y up, z forward
+
+    # dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+    # newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+    # dat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
+    # newdat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
+
+    # Save image by screenshot. Not a great way but apartently the only one 
+    dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+    newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+
+    vis = o3d.visualization.Visualizer()
+
+    vis.create_window() 
+    vis.add_geometry(dat)
+    vis.poll_events()
+    vis.update_renderer()
+    image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_OG.png')
+    vis.capture_screen_image(image_path)
+    vis.destroy_window()
+    
+    vis.create_window() 
+    vis.add_geometry(newdat)
+    vis.poll_events()
+    vis.update_renderer()
+    image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_new.png')
+    vis.capture_screen_image(image_path)
+    vis.destroy_window()
+
+def radar_df_to_excel(radar_df,filename):
+    name = filename.split('/')[-1].split('.')[0]+'.xlsx'
+    radar_df.to_excel   ('./noisy_nuScenes/samples/RADAR_FRONT/examples/'+name)
+    print('saved to %s'%('./noisy_nuScenes/samples/RADAR_FRONT/examples/'+name))
+    input()
+
+def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
+    # generate a gradient of noise levels in matplotlib subplot
+    deformer.radar_ghost_max=0  # debug, TODO: remove
+
+    df_og = copy.deepcopy(radar_df)
+    token = filename.split('/')[-1].split('.')[0]
+    output_folder = os.path.join(args.out_root,'samples',sensor,'noise_lvl',token)
+    mkdir_if_missing(output_folder)
+    vis = o3d.visualization.Visualizer()
+
+    # extract original point cloud
+    dat = o3d.io.read_point_cloud(filename)
+
+    # Saving original pcd in matplotlib with auto angling for 3d effect
+    pts_OG = np.asarray(dat.points)
+    pts_list=[pts_OG]
+        
+    # temp save of o3d visualization
+    image_path = os.path.join(output_folder,'o3d_0.png')
+    dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+    vis.create_window() 
+    vis.add_geometry(dat)
+    vis.poll_events()
+    vis.update_renderer()
+    vis.capture_screen_image(image_path)
+    vis.destroy_window()
+
+    for noise_lvl in range (1,11,1):
+        deformer.noise_level_radar = (noise_lvl+1)/10
+        print('noise level at %f %%'%(deformer.noise_level_radar * 100))
+        newfilename = os.path.join(output_folder,token+'_'+str(noise_lvl)+'.pcd')
+        
+        deformed_radar_df = deformer.deform_radar(df_og)
+        
+        encode_to_pcd_file(deformed_radar_df,filename,newfilename)
+
+        # Read datapoints
+        newdat = o3d.io.read_point_cloud(newfilename)
+
+        # Converting to numpy format
+        pts_new = np.asarray(newdat.points)
+        pts_list.append(pts_new)
+
+        # Temp save of o3d visualization
+        image_path = os.path.join(output_folder,'o3d_'+str(noise_lvl)+'.png')
+        newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+        vis.create_window() 
+        vis.add_geometry(newdat)
+        vis.poll_events()
+        vis.update_renderer()
+        vis.capture_screen_image(image_path)
+        vis.destroy_window()
+
+    # Gather o3d images in a list
+    imlist=[]
+    for item in os.listdir(output_folder):
+        if token in item and item[-3:]=='png':
+            # previous grid generation
+            os.remove(os.path.join(output_folder,item))
+
+        elif item[-3:]=='png' and item[:3]=='o3d':
+            imlist.append(cv2.imread(os.path.join(output_folder,item)))
+            os.remove(os.path.join(output_folder,item))
+    
+    fig, ax = plt.subplots(3,4,figsize=(16, 9))
+    ax = ax.flatten()
+
+    for i,img in enumerate(imlist):
+        # correct color scale as images are loaded by openCV
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        ax[i].imshow(img)
+        if i==0:
+            ax[i].set_title('original')
+        else:
+            ax[i].set_title('lvl: '+str(i/10))
+    
+    ax[11].axis('off')
+    
+    fig.suptitle('Noise levels for token: '+token)
+    
+    plt.tight_layout(pad=0)
+    
+    store_path = os.path.join(output_folder,'o3d_'+token+'.png')
+
+    plt.savefig(store_path)
+    plt.close()    
+
+
+    # matplotlib 3D reconstruction and saving in 3d plots:
+    # Create the figure and axes object
+    fig = plt.figure(figsize=(16, 9))
+
+    for i,points in enumerate(pts_list):
+        ax = fig.add_subplot(3,4,i+1, projection='3d')
+
+        x = points[:,0]
+        y = points[:,1]
+        z = points[:,2]
+
+        # Plot the 3D points
+        ax.scatter(x, y, z, c='blue', marker='o')
+
+        # Set labels for the axes
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+
+        # set elevation angle view
+        ax.view_init(elev=40, azim=180)
+
+        # legend
+        if i==0:
+            ax.set_title('original')
+        else:
+            ax.set_title('lvl: '+str(i/10))
+
+    # ax[11].axis('off')
+
+    # Set title for the plot
+    fig.suptitle('Noise levels for token: '+token)
+    
+    store_path = os.path.join(output_folder,'plt_'+token+'.png')
+    
+    plt.savefig(store_path) 
+    plt.close()    
+
+
+    exit()
 
 # utils functions
 def rot_x(theta):
@@ -334,8 +512,8 @@ def rot_z(theta):
 
 def polar_to_cart(r,theta):
 
-    x = r * cos(theta)
-    y = r * sin(theta)
+    x = r * cos(radians(theta))
+    y = r * sin(radians(theta))
 
     return x,y
 
@@ -395,9 +573,11 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
                     radar_df = decode_pcd_file(filename)
 
+                    noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
+
+
+
                     print(radar_df)
-                    # print(sum(radar_df['vx'])/len(radar_df))
-                    # input()
                     
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
@@ -416,22 +596,9 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         print(100*'-')
                         input()                
 
-
                     # Read datapoints
                     dat = o3d.io.read_point_cloud(filename)
                     newdat = o3d.io.read_point_cloud(newfilename)
-
-                    # Applying rotation to data points
-                    # # nuScenes radar coordinates    -->        Carthesian coordinates
-                    # #     z  x                                       y 
-                    # #     | /                       -->              | 
-                    # # y___|/                                        z|__x
-                    # # x forward, y left, z up                       x right, y up, z forward
-
-                    # dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
-                    # newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
-                    # dat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
-                    # newdat.rotate(rot_x(-60), center=(0, 0, 0)) #give it a 3d effect
 
                     # converting to numpy format
                     pts_OG = np.asarray(dat.points)
@@ -458,38 +625,9 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         # o3d.visualization.draw_geometries([dat])
 
                     if args.save_radar:
-                        # Saving radar point cloud rendering in matplotlib and in open3d bird eyeview
-                        mkdir_if_missing(newfoldername+'/imgs')
-                        
-                        # Saving in matplotlib with auto angling for 3d effect
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_OG.png')
-                        disp_radar_pts(pts_OG,title='original',display=False, store_path=image_path)
-                        
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_plt_new.png')
-                        disp_radar_pts(pts_new,title='new',display=False, store_path=image_path)
+                        save_radar_pointcloud(newfoldername,filename,pts_OG,pts_new,dat,newdat)
 
-
-                        # Save image by screenshot. Not a great way but apartently the only one 
-                        dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
-                        newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
-
-                        vis = o3d.visualization.Visualizer()
-
-                        vis.create_window() 
-                        vis.add_geometry(dat)
-                        vis.poll_events()
-                        vis.update_renderer()
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_OG.png')
-                        vis.capture_screen_image(image_path)
-                        vis.destroy_window()
-                        
-                        vis.create_window() 
-                        vis.add_geometry(newdat)
-                        vis.poll_events()
-                        vis.update_renderer()
-                        image_path = os.path.join(newfoldername,'imgs',filename.split('/')[-1].split('.')[0].split('_')[-1]+'_o3d_new.png')
-                        vis.capture_screen_image(image_path)
-                        vis.destroy_window()
+                        input('PRESS ENTER')
 
 
                 elif 'CAM' in sensor:
@@ -587,9 +725,9 @@ def encode_to_pcd_file(df, ogfilename, newfilename):
     :param df: Pandas DataFrame containing radar data.
     :param filename: Output .pcd file path.
     """
-    print('df to convert:')
-    print(df)
-
+    # print('df to convert:')
+    # print(df)
+    print('converting df...')
     print('Opening original point cloud data at:', ogfilename)
 
     # opening file    
@@ -699,6 +837,11 @@ def encode_to_pcd_file(df, ogfilename, newfilename):
     print(f"PCD file saved to {newfilename}")
 
 
+# TODO:
+# - modify comp velocity in ghost points
+# - modify RCS generation in ghost points (better bounds) <-- maybe not due to moving average and background noise measurement
+# - modify rcs, noise and accuracy degeneration relations
+# - generate less outlier ghost points
 
 # WORK IN PROGRESS
 class deform_data():
@@ -721,13 +864,13 @@ class deform_data():
                                                      
                                                     },
                                             'ang':{'short_range':60,
-                                                   'mid_range':45,
-                                                   'far_range':9   # long range beam is +/- 9 degrees                                                    
+                                                   'mid_range':40,
+                                                   'far_range':4   # long range beam is +/- 9 degrees                                                    
                                                   },
 
                                             'resolution':{'near_range':0.39,
                                                           'far_range':1.79
-                                                         }
+                                                         },
                                             },
                                     'vel':{'range':[-111.11, 55.5],
                                             'resolution':{'near_range':0.119,
@@ -735,6 +878,29 @@ class deform_data():
                                                         }
                                             }
                                     }
+        self.radar_dist_accuracy =  {'near_range' :0.1,
+                                    'far_range': 0.4
+                                    }
+        self.radar_ang_accuracy =   {'near_range' :{'0':0.3,
+                                                    '45':1,
+                                                    '60':5
+                                                    },
+                                    'far_range': 0.1
+                                    }
+        self.radar_vel_accuracy = 0.1/3.6 
+        
+        # {'dist': {'near_range':0.1,
+        #                             'far_range':0.4
+        #                             },
+        #                 'angle':{'0':3.2,
+        #                             'far_range':0.4
+        #                             },
+
+        # Ghost points appearing rate is independant of the noise level
+        # => fixed, very small rate
+        self.radar_ghost_max = 4
+
+
         self.args = args
         self.verbose = args.verbose
 
@@ -838,8 +1004,6 @@ class deform_data():
         ghost_df = pd.DataFrame(columns=radar_df.columns)
 
         for i in range(num_ghosts):
-
-
             #---- Generating x,y,z coordinates ------
 
             # no need to check bounds as they are guaranteed by the uniform distribution
@@ -857,18 +1021,54 @@ class deform_data():
                 print('point in far range')
                 theta = np.random.uniform(-self.radar_sensor_bounds['dist']['ang']['far_range'],self.radar_sensor_bounds['dist']['ang']['far_range'])
 
-
+            # converting back to cartesian coordinates
             x, y = polar_to_cart(r,theta)
 
-            print('r_fake:',r)
-            print('theta_fake:',theta)
-            print('x_fake:',x)
-            print('y_fake:',y)
+            if self.verbose:
+                print('ghost point',i)
+                print('r_fake:',r)
+                print('theta_fake:',theta)
+                print('x_fake:',x)
+                print('y_fake:',y)
+                
+            #---- Generating velocities ------
+            '''
+            Note: radars measure a radial velocity. Therefore the velocity range corresponds to the min/max values of the radial velocity.
+            We know V_R =< V_S, with V_S the total relative velocity in the radar's frame. Therefore V_R_max =< V_S_max.
+            If we generate V_S with a min/max value corresponding to the min/max values of V_R we are within the mathematical bounds.
+            '''
+            # Total velocity
+            # '''
+            # Most objects have velocities close to 0 so we want to simulate this kind of distribution
+            # A uniform distribution isn't great for that.
+            # Here we simulate a truncated gaussian between the bounds of the radar velocity range 
+            # '''
+            # # vs = np.random.normal(0,max(self.radar_sensor_bounds['vel']['range'][0],self.radar_sensor_bounds['vel']['range'][1]))
+            # # while not(self.radar_sensor_bounds['vel']['range'][0]<=vs and vs<=self.radar_sensor_bounds['vel']['range'][1]):
+            # #     vs = np.random.normal(0,max(abs(self.radar_sensor_bounds['vel']['range'][0]),abs(self.radar_sensor_bounds['vel']['range'][1])))
 
+            # # vx = vs cos(theta)
+            # # vy = vs sin(theta)
+            # # and this is the same theta we generated before
+            # # vx, vy = polar_to_cart(vs,theta)
+
+            '''
+            We sample the velocity from a known (vx,vy) couple. This allows us to generate a velocity without knowing the radar's internal
+            calculations.
+            '''
+
+            # Sampling from a known distribtion remains the safest option
+            id = np.random.choice(radar_df.index.to_list())
+            vx = radar_df.loc[id,'vx']
+            vy = radar_df.loc[id,'vy']
+
+            # v_comp = v - v_ego
+            vx_ego, vy_ego = self.get_ego_vel(radar_df) 
+            vx_comp = vx - vx_ego
+            vy_comp = vy - vy_ego
             
             #---- Generating dynamic properties ------
-            dyn_prop = np.random.randint(0,8) # possible values are 0 to 7 included
-
+           
             # dynProp: Dynamic property of cluster to indicate if is moving or not.
             # 0: moving
             # 1: stationary
@@ -878,59 +1078,65 @@ class deform_data():
             # 5: crossing stationary
             # 6: crossing moving
             # 7: stopped
+            # We retrieve dynamic property of the point based of the line we used to get v_x and v_y
+            dyn_prop = radar_df.loc[id,'dyn_prop']
 
-            if dyn_prop in [1, 3, 5, 7]:
-                # stationary objects
-                dyn = 'stationary'
+                       
+            #---- RCS value ------
+            # sorting the dataframe by rcs values and taking the lowest 50% values
+            # then take uniform distribution amongst all
+            rcs_dist = radar_df.sort_values('rcs')['rcs'][:int(len(radar_df)/2)]
+            if len(rcs_dist)>10:
+                rcs = np.random.choice(rcs_dist.to_list())
+            else:
+                # fixed lowest value in case dataframe too small
+                rcs = -5
 
-            elif dyn_prop == 0:
-                # moving but not incoming
-                dyn = 'moving'
+            #---- misc properties ------
+            # Taking most common values
+            x_rms = radar_df['x_rms'].mode()[0]
+            y_rms = radar_df['y_rms'].mode()[0]
+            vx_rms = radar_df['vx_rms'].mode()[0]
+            vy_rms = radar_df['vy_rms'].mode()[0]
 
-            elif dyn_prop == 2:
-                # oncoming (-x direction)
-                dyn = 'oncoming'
+            # valid states:
+            # 0x00	valid                                                   (impossible --> ghost point)
+            # 0x04	valid cluster with low RCS
+            # 0x08	valid cluster with azimuth correction due to elevation  (impossible --> no elevation)
+            # 0x09	valid cluster with high child probability
+            # 0x0a	valid cluster with high probability of being a 50 deg artefact
+            # 0x0b	valid cluster but no local maximum
+            # 0x0c	valid cluster with high artefact probability
+            # 0x0f	valid cluster with above 95m in near range              (impossible --> construction)
+            # 0x10	valid cluster with high multi-target probability        (impossible --> ghost point)
+            # 0x11	valid cluster with suspicious angle                     (impossible --> construction)
+            invalid_state=np.random.choice([0x04,0x09,0x0a,0x0b,0x0c])
+            
 
-            elif dyn_prop == 4:
-                # unknown
-                dyn = 'unknown'
+            # pdh0: False alarm probability of cluster (i.e. probability of being an artefact caused by multipath or similar).
+            # 0: invalid
+            # 1: <25%
+            # 2: 50%
+            # 3: 75%
+            # 4: 90%
+            # 5: 99%
+            # 6: 99.9%
+            # 7: <=100%
+            pdh0_val = 100 * abs(np.random.normal(0.5, 0.5/3)) #absolute value adds a little more chances of the 0+ side
+            while pdh0_val>100:
+                # removing potential cases > 100%
+                pdh0_val = 100 * abs(np.random.normal(1, 1+1/3))
 
-            elif dyn_prop == 6:
-                # crossing moving (lateral moving)
-                dyn = 'cross_moving'
-
-            print('point is:',dyn)
-
-            #---- Generating dynamic properties ------
-            # TODO instead of drawing from possible dyn prop draw from current out of dataset, then take properties out of similar dyn objs
-            print(radar_df[radar_df['dyn_prop'].isin([1, 3, 5, 7])][['vx','vy']])
-
-            # if dyn == 'stationary':
-
-
-            exit()
-
-            # if dyn == 'stationary':
-            #     # sample from static objects
-            #     static_list = radar_df[radar_df['']]
-
-            # vx = np.random()
-
+            bins = [25, 50, 75, 90, 99, 99.9, 100]  # Upper bounds for categories
+            pdh0 = np.digitize(pdh0_val, bins) + 1  # Map to category (1 to 7)
+            
             # x  y  z  dyn_prop  id  rcs  vx  vy  vx_comp  vy_comp  is_quality_valid  ambig_state  x_rms  y_rms  invalid_state  pdh0  vx_rms  vy_rms
+            row = [x, y, 0.0, dyn_prop, id, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
+            
+            ghost_df.loc[i]=row
 
-            rcs = 0
-            vx=0
-            vy=0
-            vx_comp=0
-            vy_comp=0
-            x_rms=0
-            y_rms=0
-            invalid_state=0
-            pdh0=0
-            vx_rms=0
-            vy_rms=0
+        return ghost_df
 
-            row = [x, y, 0.0, dyn_prop, 0, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
 
 # https://github.com/nutonomy/nuscenes-devkit/blob/05d05b3c994fb3c17b6643016d9f622a001c7275/python-sdk/nuscenes/utils/data_classes.py#L315
 # https://forum.nuscenes.org/t/detail-about-radar-data/173/5
@@ -949,22 +1155,15 @@ class deform_data():
         # Calculating chance of being dropped:
         # # Rule : 0% noise => 0%  chance of removal
         # #      100% noise => 75% chance of removal
-        drop_rate = 0.75*self.noise_level_radar # we still want to keep points even at 100% noise
-
-
-        # Ghost points appearing rate is independant of the noise level
-        # => fixed, very small rate
-        ghost_rate = 3 # max amount of ghost points: 3
+        # drop_rate = 0.75*self.noise_level_radar # we still want to keep points even at 100% noise
 
 
         #-------------------------------------Ghost points generation-------------------------------------
         # Should we try to create clusters and outliers ? random gen should do that on its own but uncontrolled
 
         # Randomly draws how many ghost points will appear in this sample from a uniform distribution U(0,ghost_rate+1)
-        num_ghosts = int(100 * ghost_rate * np.random.randint(low=0,high=ghost_rate+1))
+        num_ghosts = np.random.randint(low=0,high=self.radar_ghost_max+1)
 
-        #temporary for debug:
-        num_ghosts = 1
         if self.verbose:
             print('Generating %d ghost point'%(num_ghosts))
 
@@ -973,15 +1172,29 @@ class deform_data():
             ghost_df = self.create_ghost_point(num_ghosts, radar_df)
             # # Recasting correct variable types
             # ghost_df = ghost_df.astype({'x': 'float32', 'y': 'float32', 'vx': 'float32', 'vy': 'float32', 'vx_comp': 'float32', 'vy_comp': 'float32'}) 
-        exit()
+
+        if self.verbose:
+            print('ghost points:')
+            print(ghost_df)
+
 
         #----------------------------------------Random points drop----------------------------------------
+        # Low rcs points have a higher chance of being dropped.
+        # Lowest rcs is 5.0 => range is [-5,+inf]
+        rcs_range = radar_df['rcs'].to_numpy()
+        min_rcs = -10 # allows normalization without having min value becoming 0 (which would always be dropped)
+        max_rcs = max(rcs_range)
+        
+        # normalize rcs range between [0,1]
+        rcs_range_norm = (rcs_range - min_rcs)/(max_rcs - min_rcs + 1e-8)
 
-        print(radar_df)
+        rcs_sorted = np.sort(rcs_range_norm)
+        rcs_id_sorted = np.argsort(rcs_range_norm)
 
-        # Each row has a drop_rate chance of being dropped 
-        random_vals = np.random.rand(n_rows)
-        drop_indices = np.where(random_vals <= drop_rate)[0]
+        # generating drop probability from a half-gaussian rv
+        drop_prob = abs(np.random.normal(0,self.noise_level_radar/3,n_rows))  # 3sigma = noise_level
+
+        drop_indices = rcs_id_sorted[np.where(rcs_sorted <= drop_prob)[0]]
 
         if self.verbose: 
             print('Removing %d random rows'%(len(drop_indices)))
@@ -994,126 +1207,158 @@ class deform_data():
 
         return subset_df, ghost_df
 
-    def gaussian_noise_gen(self, subset_df, noise_level): 
-        # Generating n random points from a gaussian random distribution
-        # noise_split is a percentage, the amount of points is this a subset of radar_df
-
-        # we apply the noies uniformly to all point. Noise is a mix of gaussian and uniform rv
+    def gaussian_noise_gen(self, subset_df): 
+        '''
+        Generating n random points from a gaussian random distribution
+        noise_split is a percentage, the amount of points is this a subset of radar_df
+        We apply the noise uniformly to all point. Noise is drawn from a gaussian rv.
+        We consider the potential measurement error to increase as rcs value decreases. Therefore low rcs-valued points have a higher
+        possible noise-induced shift.
+        '''
+        
         # Initialization
-
-        # subset_df = copy.deepcopy(df)
-
-        print(subset_df)
+        noisy_df = copy.deepcopy(subset_df)
+        # print(subset_df)
         n_rows = len(subset_df)
-        noise_arr = {'x':list(), 'y':list(),'vx':list(), 'vy':list(), 'type':list()}
 
-   
-        # --------------------------------Correlated position/velocity noise--------------------------------
-        # (This is probably the most realisitic way to do it, with a joint noise model: v_noise = alpha x pos_noise)
-        
-        # Position
-        ## generating n_rows noise values
-        # Here different models
-
-        # 80 % chance of gaussian noise, 9% of uniformely distributed, 1% of outlier
-        
-        noise_split_chance = np.random.rand(n_rows)
-        noise_arr['type'] = ['outlier' if draw<0.01 else 'uniform' if draw<0.09 else 'gaussian' for draw in noise_split_chance]
-        
-        noise_arr['x'] = [  np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2) if t == 'outlier' else
-                            np.random.uniform(-5*noise_level, 5*noise_level) if 't' == 'uniform' else
-                            10 * np.random.normal(0, noise_level) for t in noise_arr['type']]
-
-        noise_arr['y'] = [  np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2) if t == 'outlier' else
-                            np.random.uniform(-5*noise_level, 5*noise_level) if 't' == 'uniform' else
-                            10 * np.random.normal(0, noise_level) for t in noise_arr['type']]
-
-        # Position Bounds security check
         for i in range(n_rows):
-            # first checking if original point is inside of safety check
-            if not(self.within_bound(subset_df.loc[i,'x'],subset_df.loc[i,'y'],0,0)):
-                # If original point was OOB, make sure the noise gaussian (small) and skip
-                noise_arr['x'][i] = np.random.normal(0, noise_level)
-                noise_arr['y'][i] = np.random.normal(0, noise_level)
-                pass
+            x = subset_df.loc[i,'x']
+            y = subset_df.loc[i,'y']
+            vx = subset_df.loc[i,'vx']
+            vy = subset_df.loc[i,'vy']            
+            vx_comp = subset_df.loc[i,'vx_comp']
+            vy_comp = subset_df.loc[i,'vy_comp']
+
+            rcs = subset_df.loc[i,'rcs']
+
+            # rcs decreasing
+            # TODO: dB scale reasoning
+            rcs_new = rcs*(1-self.noise_level_radar)
+            noisy_df.loc[i,'rcs'] = rcs_new
+
+
+            # position shift
+            r, theta = cart_to_polar(x,y)
+
+
+
+            # extracting theoretical accuracies
+            if r>self.radar_sensor_bounds['dist']['range']['mid_range']:
+                # long range point
+                max_dist_acc = self.radar_dist_accuracy['far_range']
+                max_ang_acc = self.radar_ang_accuracy['far_range']
             else:
-                x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
-                y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
+                # near range point
+                max_dist_acc = self.radar_dist_accuracy['near_range']
 
-                if not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(subset_df, x_new, y_new)):
-                    while not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(subset_df, x_new, y_new)):
-                        t = noise_arr['type'][i]
-                        if t == 'outlier':
-                            noise_arr['x'][i] = np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2)
-                            noise_arr['y'][i] = np.random.uniform(-self.radar_sensor_bounds['dist']['range']['far_range']/2, self.radar_sensor_bounds['dist']['range']['far_range']/2)
-                        elif t == 'uniform':
-                            noise_arr['x'][i] = np.random.uniform(-5*noise_level, 5*noise_level)
-                            noise_arr['y'][i] = np.random.uniform(-5*noise_level, 5*noise_level)
-                        else:
-                            noise_arr['x'][i] = 10 * np.random.normal(0, noise_level)
-                            noise_arr['y'][i] = 10 * np.random.normal(0, noise_level)
-                        x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
-                        y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
+                if abs(theta)<0.5:
+                    # point @ 0° (with some margin)
+                    max_ang_acc = self.radar_ang_accuracy['near_range']['0']
+                if abs(theta)<45:
+                    # point @ 45°
+                    max_ang_acc = self.radar_ang_accuracy['near_range']['45']
+                else:
+                    # point @ 60° and above (possible physical fluctuations)
+                    max_ang_acc = self.radar_ang_accuracy['near_range']['60']
+            
+            # Promising paper for impact of rcs fluctuation on accuracy :
+            # https://ieeexplore.ieee.org/abstract/document/55565
+
+
+            # for now:
+            # Increasing sigma as noise level goes up.
+            # Realistically this should also go up with rcs value
+            dist_sigma = max_dist_acc*(1+self.noise_level_radar)
+            ang_sigma = max_ang_acc*(1+self.noise_level_radar)
+            # TODO : find better formula taking in account rcs value
+
+            # Creating normally distributed random noise on angle and distance
+            dist_noise = np.random.normal(0,dist_sigma)
+            ang_noise =  np.random.normal(0,ang_sigma)  # in degrees
+            
+            # Applying noise to original values
+            r_noisy = r + dist_noise
+            theta_noisy = degrees(theta) + ang_noise
+            
+            # converting back to cartesian coordinates
+            x_noisy, y_noisy = polar_to_cart(r_noisy,theta_noisy)
+            
+            # Modifying original values
+            noisy_df.loc[i,'x'] = x_noisy
+            noisy_df.loc[i,'y'] = y_noisy
+
+            # print('(x,y):',x,y)
+            # print('(r,theta):',r,theta)
+            # print('max_ang_acc:',max_ang_acc)
+            # print('dist_sigma:',dist_sigma)
+            # print('ang_sigma:',ang_sigma)
+            # print('dist_noise:',dist_noise)
+            # print('ang_noise:',ang_noise)
+            # print('r_noisy:',r_noisy)
+            # print('theta_noisy:',theta_noisy)
+            # print('x_noisy:',x_noisy)
+            # print('y_noisy:',y_noisy)
+            # input()
+
+            # Uncorrelated noise generation on velocity (radar velocity measurement in independant from position)
+            # Reported velocity accuracy : 0.1 km/h at all ranges
+            vel_accuracy_max = self.radar_vel_accuracy
+            vel_sigma = vel_accuracy_max*(1+self.noise_level_radar) # TODO: find better formula
+
+            # creating the relative velocity vector
+            v_vect = np.array((vx,vy)) 
+            v_mag = sqrt(vx**2+vy**2) # v_mag is the norm of v_vect, alpha is the angle between vx and v_mag
+            if v_mag!=0:
+                v_hat = v_vect/v_mag # normalized velocity vector
+
+            # Creating a line-of-sight (LOS) vector
+            r_vect = np.array((x,y)) # vector of point-to-radar axis from the origin (the radar)
+            # r_mag = r              # |r|
+            r_hat = r_vect/r         # normalized r, r always > 0
+
+            # The radar actually measures V_R (Radial velocity) which is a projection of v_vect on the LOS axis
+            vr_vect = (np.dot(v_vect,r_hat))*r_hat
+            vr_mag = sqrt(vr_vect[0]**2+vr_vect[1]**2)
+
+            # Calculating projection angle between v and vr
+            psi = atan2(np.cross(v_vect,vr_vect),np.dot(v_vect,vr_vect))
+
+            if cos(psi)==0 or v_mag==0:
+                # in this case directly add noise on relative velocity magnitude
+                # these are usually flagged as invalid points
+                vel_noise_x = np.random.normal(0,vel_sigma)   # normally distributed noise
+                vel_noise_y = np.random.normal(0,vel_sigma)   # normally distributed noise
+                v_noisy_x, v_noisy_y = v_vect + np.array((vel_noise_x,vel_noise_y))
+                v_comp_noisy_x = vx_comp + vel_noise_x
+                v_comp_noisy_y = vy_comp + vel_noise_y
+            else:
+                # Simulate noise on the measurement of V_r 
+                vel_noise = np.random.normal(0,vel_sigma)   # normally distributed noise
+                vr_noisy_mag = abs(vr_mag + vel_noise)      # adding noise to radial velocity, making sure the magnitude stays >=0
+
+                # Applying noise to V
+                v_noisy_mag = vr_noisy_mag/cos(psi)
+                v_noisy_x, v_noisy_y = v_noisy_mag * v_hat
+            
+                # converting into vx_comp and vy_comp
+                # vx_comp and vy_comp are motion compensated radial velocities
+                # We can apply the noisy directly to vx_comp and vy_comp, assuming linear relationship between vr and v_comp
+
+                #This or get noise components in x and y
+                v_comp_mag, v_alpha = cart_to_polar(vx_comp,vy_comp)
+                v_comp_mag_noisy = v_comp_mag + vel_noise*cos(psi)
+                v_comp_noisy_x, v_comp_noisy_y = polar_to_cart(v_comp_mag_noisy,degrees(v_alpha))
+
+            # Modifying original values
+            noisy_df.loc[i,'vx'] = v_noisy_x
+            noisy_df.loc[i,'vy'] = v_noisy_y
+            noisy_df.loc[i,'vx_comp'] = v_comp_noisy_x
+            noisy_df.loc[i,'vy_comp'] = v_comp_noisy_y
+
+            # misc properties:
+            # same
         
-        if self.verbose:
-            print_df = pd.DataFrame()
-            print_df['x'] = noise_arr['x'] 
-            print_df['y'] = noise_arr['y'] 
-            print_df['type'] = noise_arr['type'] 
-
-            print(print_df)
-
-
-        # converting to numpy array
-        noise_arr['x']=np.array(noise_arr['x'])
-        noise_arr['y']=np.array(noise_arr['y'])
-
-        ## Previous method:
-        # noise_arr['x'] = 10 * np.random.normal(0, noise_level, n_rows)
-        # noise_arr['y'] = 10 * np.random.normal(0, noise_level, n_rows)
-        # Deactivated due to OG points already being out sometimes 
-        # # Position Bounds security check
-        # for i in range(n_rows):
-        #     x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
-        #     y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
-
-        #     if not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(df, x_new, y_new)):
-        #         while not (self.within_bound(x_new,y_new,0,0) and self.within_resolution(df, x_new, y_new)):
-        #             noise_arr['x'][i] = 10 * np.random.normal(0, noise_level, n_rows)
-        #             noise_arr['y'][i] = 10 * np.random.normal(0, noise_level, n_rows)
-        #             x_new = subset_df.loc[i,'x'] + noise_arr['x'][i]
-        #             y_new = subset_df.loc[i,'y'] + noise_arr['y'][i]
-
-
-        ## Adding noise on x and y values
-        subset_df.loc[:,'x']  += noise_arr['x']
-        subset_df.loc[:,'y']  += noise_arr['y']
-
-
-        if self.verbose: 
-            print('resulting noise arrays:\n', noise_arr['x'])
-
-
-        # Velocity 
-        ## Getting range type for each points
-        rg_arr = ['far_range' if noise_arr['x'][i]>self.radar_sensor_bounds['dist']['range']['mid_range'] else 'near_range' for i in range(n_rows)]
-
-        ## Calculating velocity shift corresponding to position shift
-        noise_arr['vx'] = [self.radar_sensor_bounds['vel']['resolution'][rg] for rg in rg_arr] * noise_arr['x']
-        noise_arr['vy'] = [self.radar_sensor_bounds['vel']['resolution'][rg] for rg in rg_arr] * noise_arr['y']
-        
-        ## Adding noise on vx and vy values
-        subset_df.loc[:,'vx']  += noise_arr['vx']
-        subset_df.loc[:,'vy']  += noise_arr['vy']
-
-        ## Corresponding noise on vx_comp and vy_comp
-        vx_ego, vy_ego = self.get_ego_vel(subset_df)        # extracting ego motion from point_cloud, using it to re-create motion compensated noisy point
-        subset_df.loc[:,'vx_comp'] = subset_df.loc[:,'vx'] - vx_ego
-        subset_df.loc[:,'vy_comp'] = subset_df.loc[:,'vy'] - vy_ego
-
-        # --------------------------------------------------------------------------------------------------
-
-        return subset_df
+        return noisy_df
 
 
     #--------------------------------------------------------Camera functions--------------------------------------------------------
@@ -1198,7 +1443,7 @@ class deform_data():
         # a promising git repo :
         # https://github.com/noahzn/FoHIS
 
-        disp_img_cv2(image_fog, title='fog test', block=True)
+        disp_img_cv2(output_img, title='fog test', block=True)
 
 
         output_img = img
@@ -1234,10 +1479,12 @@ class deform_data():
 
         if self.verbose:
             print('truncated dataframe:\n',trunc_df)
+            print('original lenght:',len(radar_df),'| new length:',len(trunc_df))
             print('ghost dataframe:\n',ghost_df)
+            input()
 
         # Adding noise on remaining points (non-generated)
-        noisy_df = self.gaussian_noise_gen(trunc_df, self.noise_level_radar)
+        noisy_df = self.gaussian_noise_gen(trunc_df)
 
         if self.verbose:
             compare_df = pd.DataFrame(columns=['x_OG','x_new','y_OG','y_new','vx_OG','vx_new','vy_OG','vy_new','vx_comp_OG','vx_comp_new','vy_comp_OG','vy_comp_new'])
@@ -1246,7 +1493,7 @@ class deform_data():
             compare_df[['x_new','y_new','vx_new','vy_new','vx_comp_new','vy_comp_new']] = noisy_df [['x','y','vx','vy','vx_comp','vy_comp']]
 
             print('Comparing original (subset) | noisy dataset:\n',compare_df)
-
+            input()
 
         # Adding ghost points to noisy dataset
         final_df = pd.concat([noisy_df, ghost_df], axis=0, join='outer', ignore_index=True)
@@ -1265,6 +1512,7 @@ class deform_data():
         if self.verbose:
             print('Output dataframe:')
             print(final_df)
+            input()
 
         return final_df
 
@@ -1422,8 +1670,8 @@ def create_parser():
     parser.add_argument('--keyframes', '-kf', action='store_true', default=False, help='Only use keyframes (no sweeps, 2Hz instead of 12)')
 
     # Noise level
-    parser.add_argument('--n_level_cam', '-ncam', type=float, default=0.1, help='Noise level for cams')
-    parser.add_argument('--n_level_radar', '-nrad', type=float, default=0.1, help='Noise level for radars')
+    parser.add_argument('--n_level_cam', '-ncam','-cnoise' , type=float, default=0.1, help='Noise level for cams')
+    parser.add_argument('--n_level_radar', '-nrad','-rnoise' , type=float, default=0.1, help='Noise level for radars')
 
     # Output config
     parser.add_argument('--out_root', type=str, default='./noisy_nuScenes', help='Noisy output folder')
@@ -1456,6 +1704,10 @@ def check_args(args):
     assert args.sensor in sensor_list, 'Unknown sensor selected'    
    
     assert os.path.exists(args.nusc_root), 'Data folder at %s not found'%(args.nusc_root)
+
+    if not os.path.exists(args.out_root):
+        mkdir_if_missing(args.out_root)
+                          
 
     print(args)
 
