@@ -2,6 +2,7 @@ __pycache__
 nuScenes
 *.pcd
 *.xlsx
+*.csv
 
 noisy_nuScenes/examples/CAM
 noisy_nuScenes/samples/RADAR_FRONT/imgs_prev
