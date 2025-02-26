@@ -19,7 +19,7 @@ import argparse
 
 from shutil import copyfile
 from pyquaternion import Quaternion
-from math import cos, sin, asin, acos, atan2, sqrt, radians, degrees
+from math import cos, sin, asin, acos, atan2, sqrt, radians, degrees, pi, log
 # from mpl_toolkits.mplot3d import Axes3D
 
 import cv2
@@ -612,41 +612,6 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
 
     exit()
 
-# utils functions
-def rot_x(theta):
-    theta=math.radians(theta)
-    return np.array([[1,          0,           0],
-                     [0, cos(theta), -sin(theta)],
-                     [0, sin(theta),  cos(theta)]])
-
-def rot_y(theta):
-    theta=math.radians(theta)
-    return np.array([[ cos(theta), 0,  sin(theta)],
-                     [          0, 1,           0],
-                     [-sin(theta), 0,  cos(theta)]])
-
-def rot_z(theta):
-    theta=math.radians(theta)
-    return np.array([[cos(theta), -sin(theta), 0],
-                     [sin(theta),  cos(theta), 0],
-                     [         0,           0, 1]])
-
-def polar_to_cart(r,theta):
-
-    x = r * cos(radians(theta))
-    y = r * sin(radians(theta))
-
-    return x,y
-
-def cart_to_polar(x,y):
-
-    theta = atan2(y,x)
-    r = sqrt(x**2 + y**2)
-
-    return r, theta
-
-
-
 
 # Dataset Parser (most likely using kf to be faster)
 def parse_nusc_keyframes(nusc, sensors, args):
@@ -665,18 +630,26 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
             # Extract sensor data
             for sensor in sensors :
+                if 'CAM' in sensor:
+                    continue
+
                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
                 filename = 'nuScenes/'+sample_data['filename']
 
-                get_ego_pose = nusc.get('ego_pose', sample_data['ego_pose_token'])
-                cs_record = nusc.get('calibrated_sensor', sample_data['calibrated_sensor_token'])
-                sensor_record = nusc.get('sensor', cs_record['sensor_token'])
+                print('sample_data:\n',sample_data)
 
-                print('sample_data:\n',sample_data)            
+                # get current ego vel in sensor frame
+                deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
+                print('ego_vel:',deformer.ego_vel)
 
-                print(get_ego_pose)
-                print(cs_record)
-                print(sensor_record)
+                # get_ego_pose = nusc.get('ego_pose', sample_data['ego_pose_token'])
+                # cs_record = nusc.get('calibrated_sensor', sample_data['calibrated_sensor_token'])
+                # sensor_record = nusc.get('sensor', cs_record['sensor_token'])
+
+
+                # print(get_ego_pose)
+                # print(cs_record)
+                # print(sensor_record)
 
                 # input()
 
@@ -697,6 +670,10 @@ def parse_nusc_keyframes(nusc, sensors, args):
                     if args.gen_lvl_grad_img:
                         noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
 
+                    if args.gen_csv:
+                        sample_name = filename.split('/')[-1].split('.')[0]
+                        radar_df.to_csv('./noisy_nuScenes/examples/RADAR/'+sample_name+'.csv')
+                        continue
                     
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
@@ -1025,13 +1002,15 @@ class deform_data():
 
         self.noise_level_radar = args.n_level_radar
         self.noise_level_cam = args.n_level_cam
+
+        self.ego_vel = np.array([0,0])
     
     #---------------------------------------------------------Radar functions---------------------------------------------------------
-    def get_ego_vel(self, df):
-        ego_vx = df['vx'] - df['vx_comp']
-        ego_vy = df['vy'] - df['vy_comp']
+    # def get_ego_vel(self, df):
+    #     ego_vx = df['vx'] - df['vx_comp']
+    #     ego_vy = df['vy'] - df['vy_comp']
 
-        return np.mean(ego_vx.to_numpy()), np.mean(ego_vy.to_numpy())
+    #     return np.mean(ego_vx.to_numpy()), np.mean(ego_vy.to_numpy())
 
     def within_bound(self, x, y, vx, vy):
         # -Distance
@@ -1127,9 +1106,12 @@ class deform_data():
 
         # Initializing output df
         ghost_df = pd.DataFrame(columns=radar_df.columns)
-
+        print('initial ghost_df:',ghost_df)
+        
         for i in range(num_ghosts):
             #---- Generating x,y,z coordinates ------
+
+            print('ghsot point',i)
 
             # We want to avoid having easily-removable outliers
             max_range=max(radar_df['x'].to_numpy()) + 10 # range is withing sample distribution with a 10m additional margin
@@ -1155,6 +1137,7 @@ class deform_data():
             x, y = polar_to_cart(r,theta)
 
             if self.verbose:
+                print('max_range:',max_range)
                 print('ghost point',i)
                 print('r_fake:',r)
                 print('theta_fake:',theta)
@@ -1162,6 +1145,7 @@ class deform_data():
                 print('y_fake:',y)
                 
             #---- Generating velocities ------
+            print('Velocities:')
             '''
             Note: radars measure a radial velocity. Therefore the velocity range corresponds to the min/max values of the radial velocity.
             We know V_R =< V_S, with V_S the total relative velocity in the radar's frame. Therefore V_R_max =< V_S_max.
@@ -1182,47 +1166,114 @@ class deform_data():
             # # and this is the same theta we generated before
             # # vx, vy = polar_to_cart(vs,theta)
 
-            '''
-            We sample the velocity from a known (vx,vy) couple. This allows us to generate a velocity without knowing the radar's internal
-            calculations.
-            '''
+
+            # v_ego = self.ego_vel
+
+            # generating a random Vr and a random psi angle
+            # actual radar range is -111;+55, but there is a higher probability a reading falls at a small value
+            # this is why we set most points to be between +/-55 m/s and following a gaussian distribution
+            # Vr = np.random.normal(0,self.radar_sensor_bounds['vel']['range'][1]/3)
+            # # psi = np.random.uniform(-math.pi/2+1e-3, math.pi/2-1e-3) # making sure psi is in ]-pi/2,+pi/2[
+
+            # '''
+            # We sample the velocity from a known (vx,vy) couple. This allows us to generate a velocity without knowing the radar's internal
+            # calculations.
+            # '''
 
             '''
             Reminder: radars only measure a radial velocity, i.e. the projection of the relative velocity on the line of sight from the radar to the point.
             The vx and vy values are the components of the relative velocity, which is extracted by the radar by unknown methods
             vx_comp and vy_comp are the components of the motion-compensated radial velocity. The compensation process itself is unknown.
             '''
-
-            # Because the process to acquire vx and vy is unknown, we can only sample a couple from the currrent distribtion
-            ID = np.random.choice(radar_df.index.to_list()) # this will also be useful for other parameters
-            vx = radar_df.loc[ID,'vx']
-            vy = radar_df.loc[ID,'vy']
-
-            v_vect = np.array((vx,vy))
-            v_mag = sqrt(vx**2+vy**2)
-            if v_mag !=0 : 
-                v_hat = v_vect/v_mag
-            else:
-                v_hat = v_vect  # null vector
-
             r_vect = np.array((x,y))
             # r_mag = r # r = ||x,y||, r>0
             r_hat = r_vect/r
 
-            # Vr (Radial velocity) is a projection of v_vect on r_vect
-            vr_vect = (np.dot(v_vect,r_hat))*r_hat
+            # Because the process to acquire vx and vy is unknown, we can only sample a couple from the currrent distribtion
+            ID = np.random.choice(radar_df.index.to_list()) # this will also be useful for other parameters
+            vx, vy = radar_df.loc[ID,['vx','vy']]
+
+            v_vect = np.array([vx,vy])
+            vr_vect = (np.dot(v_vect,r_hat))*r_hat # projection of V_vect on r_vect aka the radial velocity
             vr_mag = sqrt(vr_vect[0]**2+vr_vect[1]**2)
+            vr_hat = vr_vect / vr_mag
 
-            # Calculating projection angle between v and vr
-            psi = atan2(np.cross(v_vect,vr_vect),np.dot(v_vect,vr_vect))
+            v_ego_r = (np.dot(self.ego_vel,r_hat))*r_hat # projecting ego velocity on radial vector
+            v_ego_r_mag = sqrt(v_ego_r[0]**2+v_ego_r[1]**2)
+
+            v_comp_mag = vr_mag - v_ego_r_mag
+            v_comp = v_comp_mag * vr_hat
+
+            vx_comp, vy_comp = v_comp
+
+            print('r_vect:',r_vect)
+            print('r_hat:',r_hat)
+            print('ID:',ID)
+            print('corresponding row:\n',radar_df.loc[i])
+            print('vx:',vx)
+            print('vy:',vy)
+            print('v_vect:',v_vect)
+            print('vr_vect:',vr_vect)
+            print('vr_mag:',vr_mag)
+            print('vr_hat:',vr_hat)
+            print('v_ego_r:',v_ego_r)
+            print('v_ego_r_mag:',v_ego_r_mag)
+            print('v_comp_mag:',v_comp_mag)
+            print('v_comp:',v_comp)
+            print('vx_comp:',vx_comp)
+            print('vy_comp:',vy_comp)
+            input()
+            
 
 
+           
+            # ID = np.random.choice(radar_df.index.to_list()) # this will also be useful for other parameters
+            # vx = radar_df.loc[ID,'vx']
+            # vy = radar_df.loc[ID,'vy']
+
+            # v_vect = np.array((vx,vy))
+            # v_mag = sqrt(vx**2+vy**2)
+            # if v_mag !=0 : 
+            #     v_hat = v_vect/v_mag
+            # else:
+            #     v_hat = v_vect  # null vector
+
+            # r_vect = np.array((x,y))
+            # # r_mag = r # r = ||x,y||, r>0
+            # r_hat = r_vect/r
+
+            # # Vr (Radial velocity) is a projection of v_vect on r_vect
+            # vr_vect = (np.dot(v_vect,r_hat))*r_hat
+            # vr_mag = sqrt(vr_vect[0]**2+vr_vect[1]**2)
+
+            # # Calculating projection angle between v and vr
+            # psi = atan2(np.cross(v_vect,vr_vect),np.dot(v_vect,vr_vect))
+
+            # # project v_ego on vr
+            # # calculate difference between v_ego_proj and v_comp
+            # # v_comp = vr_og - vegoproj
+            # # vr_og - v_comp = vegoproj
+            # # newvcomp = newvr - vegoproj 
+
+            # og_x, og_y = radar_df.loc[ID,['x','y']]
+            # og_r_vect = np.array([og_x,og_y])
+            # og_r_mag = np.array([og_x**2+og_y**2])
+            # og_r_hat = og_r_vect/og_r_mag
+
+            # og_vr_vect = (np.dot(v_vect,og_r_hat))*og_r_hat
+            # og_vr_mag = sqrt(og_vr_vect[0]**2+og_vr_vect[1]**2)
+
+            # og_vx_comp, og_vy_comp = radar_df.loc[ID,['vx_comp','vy_comp']]
+            # og_v_comp_vect = np.array([og_vx_comp, og_vy_comp])
+
+            # vegoproj = og_v_comp_vect - og_vr_mag
+            # vx_comp, vy_comp = vr_vect - vegoproj
 
 
-            # v_comp = v - v_ego
-            vx_ego, vy_ego = self.get_ego_vel(radar_df) 
-            vx_comp = vx - vx_ego
-            vy_comp = vy - vy_ego
+            # # v_comp = v - v_ego
+            # # vx_ego, vy_ego = self.get_ego_vel(radar_df) 
+            # # vx_comp = vx - vx_ego
+            # # vy_comp = vy - vy_ego
             
             
             #---- Generating dynamic properties ------
@@ -1237,17 +1288,30 @@ class deform_data():
             # 7: stopped
             # We retrieve dynamic property of the point based of the line we used to get v_x and v_y
             dyn_prop = radar_df.loc[ID,'dyn_prop']
-
+            print('dyn_prop:',dyn_prop)
                        
             #---- RCS value ------
             # sorting the dataframe by rcs values and taking the lowest 25% values
             # then take uniform distribution amongst all
-            rcs_dist = radar_df.sort_values('rcs')['rcs'][:int(len(radar_df)*0.25)]
-            if len(rcs_dist)>10:
-                rcs = np.random.choice(rcs_dist.to_list())
-            else:
-                # fixed lowest value in case dataframe too small
-                rcs = -5
+            rcs_dist = radar_df['rcs']
+            print('rcs_dist = radar_df[\'rcs\']:',rcs_dist)
+            rcs_dist.loc[len(rcs_dist)] = -5 #insuring -5 (smallest value) in the dataframe
+            print('rcs_dist.loc[len(rcs_dist)] = -5:',rcs_dist)
+            rcs_dist = rcs_dist.sort_values('rcs')
+            print('sorted rcs_dist:',rcs_dist)
+            rcs_dist = rcs_dist.drop_duplicates() # drop duplicate rcs
+            print('drop_duplicates():',rcs_dist)
+            rv = abs(np.random.normal(0,1/3)) # half gaussian
+            print('rv:',rv)
+            while rv>1:
+                print('rv not good')
+                rv = np.random.normal(0,1/3) # bounded upper norm
+                print('new rv',rv)
+            rcs_row = int(rv * len(rcs_dist)) # mapping bounded half-gaussian drawn random number to row in current distribution of rcs
+            print('row:',rcs_row)
+
+            rcs = rcs_dist.loc[rcs_row]
+            print('rcs_fake:',rcs)
 
             #---- misc properties ------
             # Taking most common values
@@ -1268,7 +1332,11 @@ class deform_data():
             # 0x10	valid cluster with high multi-target probability        (impossible --> ghost point)
             # 0x11	valid cluster with suspicious angle                     (impossible --> construction)
             invalid_state=np.random.choice([0x04,0x09,0x0a,0x0b,0x0c])
-            
+            print('x_rms:',x_rms)
+            print('y_rms:',y_rms)
+            print('vx_rms:',vx_rms)
+            print('vy_rms:',vy_rms)
+            print('invalid_state:',invalid_state)
 
             # pdh0: False alarm probability of cluster (i.e. probability of being an artefact caused by multipath or similar).
             # 0: invalid
@@ -1280,33 +1348,42 @@ class deform_data():
             # 6: 99.9%
             # 7: <=100%
             pdh0_val = 100 * abs(np.random.normal(0.5, 0.5/3)) #absolute value adds a little more chances of the 0+ side
+            print('pdh0_val:',pdh0_val)
             while pdh0_val>100:
+                print('pdh0_val not good')
                 # removing potential cases > 100%
                 pdh0_val = 100 * abs(np.random.normal(1, 1+1/3))
+                print('new pdh0_val:',pdh0_val)
 
             bins = [25, 50, 75, 90, 99, 99.9, 100]  # Upper bounds for categories
             pdh0 = np.digitize(pdh0_val, bins) + 1  # Map to category (1 to 7)
-            
+            print('pdh0:',pdh0)
             # x  y  z  dyn_prop  id  rcs  vx  vy  vx_comp  vy_comp  is_quality_valid  ambig_state  x_rms  y_rms  invalid_state  pdh0  vx_rms  vy_rms
             row = [x, y, 0.0, dyn_prop, ID, rcs, vx, vy, vx_comp, vy_comp, 1, 3, x_rms, y_rms, invalid_state, pdh0, vx_rms, vy_rms]
             
             ghost_df.loc[i]=row
 
+            print('final row:',ghost_df.loc[i])
+            input()
+
         return ghost_df
 
     def FP_FN_gen(self, radar_df):
         # Simulating ghost points and missed points
-
+        print('original_df:\n',radar_df)
+        print(50*'-','FP_FN',50*'-')
         # Initializing new dataframes and variables
         subset_df = copy.deepcopy(radar_df)
         n_rows=len(radar_df)
 
         #-------------------------------------Ghost points generation-------------------------------------
+        print(50*'-','Ghost points',50*'-')
         # Randomly draws how many ghost points will appear in this sample from a uniform distribution U(0,ghost_rate+1)
         num_ghosts = np.random.randint(low=0,high=self.radar_ghost_max+1)
-
+    
         if self.verbose:
             print('Generating %d ghost point'%(num_ghosts))
+            input()
 
         if num_ghosts:
             # Generating random ghost points
@@ -1315,15 +1392,21 @@ class deform_data():
             if self.verbose:
                 print('ghost points:')
                 print(ghost_df)
+                input()
 
 
         #----------------------------------------Random points drop----------------------------------------
+        print(50*'-','RCS-based random drop',50*'-')
         # Low rcs points have a higher chance of being dropped.
         # Lowest rcs is 5.0 => range is [-5,+inf]
         rcs_range = radar_df['rcs'].to_numpy()
         min_rcs = -10 # allows normalization without having min value becoming 0 (which would always be dropped)
         max_rcs = max(rcs_range)
-        
+
+        print('rcs_range:',rcs_range)
+        print('min_rcs:',min_rcs)
+        print('max_rcs:',max_rcs)  
+
         # normalize rcs range between [0,1]
         rcs_range_norm = (rcs_range - min_rcs)/(max_rcs - min_rcs + 1e-8)
 
@@ -1335,15 +1418,26 @@ class deform_data():
 
         drop_indices = rcs_id_sorted[np.where(rcs_sorted <= drop_prob)[0]]
 
+        print('rcs_range_norm:',rcs_range_norm)
+        print('rcs_sorted:',rcs_sorted)
+        print('rcs_id_sorted:',rcs_id_sorted)
+        print('drop_prob:',drop_prob)
+        print('drop_indices:',drop_indices)
+        input()
+
+
         if self.verbose: 
             print('Removing %d random rows'%(len(drop_indices)))
             print('Removed rows:',drop_indices)
+            input()
 
         subset_df = subset_df.drop(drop_indices, axis=0)
         subset_df.reset_index(drop=True, inplace=True)
 
         if self.verbose: print('Subset:', subset_df)
 
+        input('finished FP_FN')
+        print()
         return subset_df, ghost_df
 
     def gaussian_noise_gen(self, subset_df): 
@@ -1354,7 +1448,7 @@ class deform_data():
         We consider the potential measurement error to increase as rcs value decreases. Therefore low rcs-valued points have a higher
         possible noise-induced shift.
         '''
-        
+        print('\n',50*'-','Noise generation',50*'-')
         # Initialization
         noisy_df = copy.deepcopy(subset_df)
         # print(subset_df)
@@ -1370,41 +1464,83 @@ class deform_data():
 
             rcs = subset_df.loc[i,'rcs']
 
+            print('row:',i)
+            print('initial parameters:',subset_df.loc[i,'x'])
+            print()
+
             # rcs decreasing
-            # TODO: dB scale reasoning
-            rcs_new = rcs*(1-self.noise_level_radar)
-            noisy_df.loc[i,'rcs'] = rcs_new
+            # https://asp-eurasipjournals.springeropen.com/articles/10.1155/2010/610920#:~:text=The%20transmitted%20power%20has%20an,target%20%5B7%2C%208%5D.
+            # => SNR_k = alpha_k . average(RCS)
+            # The RCS value we have a is the RCS of a cluster (i.e. the average RCS of a scan)
+            # as noise increase, SNR decreases and RCS decreases linearily with it
+            # We go from the original SNR to SNR=0 => we do SNR(1-noise_lvl) => rcs = rcs(1-noise_lvl)
+            # note: SNR is a ratio in dB. This means a SNR = 0 implies S=R (S/R=1 => 10 log(1) = 0)
+            # Our noise level acts dicretly on the SNR rather than just the noise, this means a 10% increase in noise level is a 10%
+            # is a 10 % decrease of the SNR directly. At a constant S this means :
+            # SNR' = 10 SNR = (10 log(S/N)) * (1-0.1)
+            rcs_linear = 10**(rcs/10) # converting RCS to linear scale
+            rcs_new_linear = rcs_linear*(1-self.noise_level_radar) # adding noise
+            rcs_new = 10*log(rcs_new_linear,10) # convert back to dBsm
+            noisy_df.loc[i,'rcs'] = rcs_new # update df
+            
+            print('rcs:')
+            print('rcs_linear:',rcs_linear)
+            print('rcs_new_linear:',rcs_new_linear)
+            print('rcs_new:',rcs_new)
 
 
             # position shift
             r, theta = cart_to_polar(x,y)
 
-
+            print('r, theta:',r,theta)
 
             # extracting theoretical accuracies
             if r>self.radar_sensor_bounds['dist']['range']['mid_range']:
-                # long range point
-                max_dist_acc = self.radar_dist_accuracy['far_range']
-                max_ang_acc = self.radar_ang_accuracy['far_range']
+                # long range point (possible physical fluctuations)
+                min_dist_acc = self.radar_dist_accuracy['far_range']
+                min_ang_acc = self.radar_ang_accuracy['far_range']
             else:
                 # near range point
-                max_dist_acc = self.radar_dist_accuracy['near_range']
+                min_dist_acc = self.radar_dist_accuracy['near_range']
 
                 if abs(theta)<0.5:
                     # point @ 0° (with some margin)
-                    max_ang_acc = self.radar_ang_accuracy['near_range']['0']
+                    min_ang_acc = self.radar_ang_accuracy['near_range']['0']
                 if abs(theta)<45:
                     # point @ 45°
-                    max_ang_acc = self.radar_ang_accuracy['near_range']['45']
+                    min_ang_acc = self.radar_ang_accuracy['near_range']['45']
                 else:
                     # point @ 60° and above (possible physical fluctuations)
-                    max_ang_acc = self.radar_ang_accuracy['near_range']['60']
+                    min_ang_acc = self.radar_ang_accuracy['near_range']['60']
+            min_vel_accuracy = self.radar_vel_accuracy # Reported velocity accuracy : 0.1 km/h at all ranges
             
-            # for now:
-            # Increasing sigma as noise level goes up.
-            # Realistically this should also go up with rcs value
-            dist_sigma = max_dist_acc*(1+self.noise_level_radar)
-            ang_sigma = max_ang_acc*(1+self.noise_level_radar)
+            print('min_dist_acc:',min_dist_acc)
+            print('min_ang_acc:',min_ang_acc)
+            print('min_vel_accuracy:',min_vel_accuracy)
+
+            # From the Cramer-Rao bound: measurement accuracy is invertly proportional to sqrt(SNR)
+            # The accuracy from datasheet is considered to be the max accuracy => RCS = 64dBsm
+            max_rcs = 64
+            rcs_ratio = rcs_new/max_rcs # ratio between current rcs and max_rcs, i.e between current rcs and 64 dBsm 
+            # new acuracy is invertly proportional to sqrt of rcs_ratio
+            # dist_sigma = max_dist_acc*(1+self.noise_level_radar)
+            # ang_sigma = max_ang_acc*(1+self.noise_level_radar)
+            # vel_sigma = vel_accuracy_max*(1+self.noise_level_radar) # TODO: find better formula
+            # noise_level already in rcs_new value (previously updated)
+            dist_sigma = min_dist_acc * sqrt(rcs_ratio)
+            ang_sigma = min_ang_acc * sqrt(rcs_ratio)
+            vel_sigma = min_vel_accuracy * sqrt(rcs_ratio)
+
+            print('max_rcs:',max_rcs)
+            print('original rcs:',rcs)
+            print('current rcs:',rcs_new)
+            print('rcs_ratio:',rcs_ratio)
+            print('dist_sigma:',dist_sigma)
+            print('ang_sigma:',ang_sigma)
+            print('vel_sigma:',vel_sigma)
+
+            print()
+
             # TODO : find better formula taking in account rcs value
 
             # Creating normally distributed random noise on angle and distance
@@ -1422,24 +1558,18 @@ class deform_data():
             noisy_df.loc[i,'x'] = x_noisy
             noisy_df.loc[i,'y'] = y_noisy
 
-            # print('(x,y):',x,y)
-            # print('(r,theta):',r,theta)
-            # print('max_ang_acc:',max_ang_acc)
-            # print('dist_sigma:',dist_sigma)
-            # print('ang_sigma:',ang_sigma)
-            # print('dist_noise:',dist_noise)
-            # print('ang_noise:',ang_noise)
-            # print('r_noisy:',r_noisy)
-            # print('theta_noisy:',theta_noisy)
-            # print('x_noisy:',x_noisy)
-            # print('y_noisy:',y_noisy)
-            # input()
+            print('(x,y):',x,y)
+            print('(r,theta):',r,theta)
+            print('dist_noise:',dist_noise)
+            print('ang_noise:',ang_noise)
+            print('r_noisy:',r_noisy)
+            print('theta_noisy:',theta_noisy)
+            print('x_noisy:',x_noisy)
+            print('y_noisy:',y_noisy)
+            input()
 
             # Uncorrelated noise generation on velocity (radar velocity measurement in independant from position)
-            # Reported velocity accuracy : 0.1 km/h at all ranges
-            vel_accuracy_max = self.radar_vel_accuracy
-            vel_sigma = vel_accuracy_max*(1+self.noise_level_radar) # TODO: find better formula
-
+            
             # creating the relative velocity vector
             v_vect = np.array((vx,vy)) 
             v_mag = sqrt(vx**2+vy**2) # v_mag is the norm of v_vect, alpha is the angle between vx and v_mag
@@ -1492,9 +1622,32 @@ class deform_data():
             noisy_df.loc[i,'vx_comp'] = v_comp_noisy_x
             noisy_df.loc[i,'vy_comp'] = v_comp_noisy_y
 
+            print('velocity:')
+            print('v_vect:',v_vect)
+            print('v_mag:',v_mag)
+            print('v_hat:',v_hat)
+            print('r_vect:',r_vect)
+            print('r_hat:',r_hat)
+            print('vr_vect:',vr_vect)
+            print('vr_mag:',vr_mag)
+            print('psi:',psi)
+            print('vel_noise:',vel_noise)
+            print('vr_noisy_mag:',vr_noisy_mag)
+            print('v_noisy_mag:',v_noisy_mag)
+            print('v_noisy_x:',v_noisy_x)
+            print('v_noisy_y:',v_noisy_y)
+            print('v_comp_mag:',v_comp_mag)
+            print('v_alpha:',v_alpha)
+            print('v_comp_mag_noisy:',v_comp_mag_noisy)
+            print('v_comp_noisy_x:',v_comp_noisy_x)
+            print('v_comp_noisy_y:',v_comp_noisy_y)
+            input()
+
+
+
             # misc properties:
             # same
-        
+        input('end of noisy gen')
         return noisy_df
 
 
@@ -1819,6 +1972,7 @@ def create_parser():
     parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
     parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
     parser.add_argument('--gen_lvl_grad_img', action='store_true', default=False, help='generate output files for multiple noise levels')
+    parser.add_argument('--gen_csv', action='store_true', default=False, help='generate csv file out of df (debug)')
     parser.add_argument('--verbose', '-v', action='store_true', default=False, help='Verbosity on|off')
 
     # Other
@@ -1838,7 +1992,9 @@ def check_args(args):
                     'RADAR_BACK_LEFT','RADAR_BACK_RIGHT','RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT']  
 
     assert args.split in ['train','val','test','mini'], 'Wrong split type'
-    assert args.sensor in sensor_list, 'Unknown sensor selected'    
+
+    if args.sensor:
+        assert args.sensor in sensor_list, 'Unknown sensor selected'    
    
     assert os.path.exists(args.nusc_root), 'Data folder at %s not found'%(args.nusc_root)
 
@@ -1885,7 +2041,7 @@ https://conti-engineering.com/wp-content/uploads/2020/02/ARS-408-21_EN_HS-1.pdf
 
 # Promising paper for impact of rcs fluctuation on accuracy :
 https://ieeexplore.ieee.org/abstract/document/55565
-
+https://asp-eurasipjournals.springeropen.com/articles/10.1155/2010/610920#:~:text=The%20transmitted%20power%20has%20an,target%20%5B7%2C%208%5D.
 
 https://github.com/Gil-Mor/iFish
 https://github.com/noahzn/FoHIS
