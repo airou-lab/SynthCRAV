@@ -7,9 +7,11 @@
 import os
 # import sys 
 import numpy as np
+import pandas as pd
 from typing import Tuple
 from pyquaternion import Quaternion
 from math import cos, sin, asin, acos, atan2, sqrt, radians, degrees, pi
+import struct
 
 import colorsys
 import cv2
@@ -24,8 +26,12 @@ from nuscenes.utils.geometry_utils import view_points, transform_matrix
 
 # Misc
 def mkdir_if_missing(path):
-    for i in range(len(path.split('/'))-1):
-        top_dir = ('/'.join(path.split('/')[:i+2]))
+    normpath = os.path.normpath(path)
+    folder_list = normpath.split(os.sep)
+    top_dir=folder_list.pop(0)
+
+    for item in folder_list:
+        top_dir = os.path.join(top_dir,item)
 
         if not os.path.isdir(top_dir):
             os.mkdir(top_dir)
@@ -74,6 +80,175 @@ def cart_to_polar(x,y):
     r = sqrt(x**2 + y**2)
 
     return r, theta
+
+# Radar data encoder/decoder
+def decode_pcd_file(filename):
+    # Extract sensor data
+    print('Opening point cloud data at:', filename)
+
+    # opening file    
+    meta = []
+    with open (filename, 'rb') as file:
+        for line in file:
+            line = line.strip().decode('utf-8')
+            meta.append(line)                        
+
+            if line.startswith('DATA'):
+                break
+
+        data_binary = file.read()
+
+    #extracting headers
+    fields = meta[2].split(' ')[1:]
+    sizes = meta[3].split(' ')[1:]
+    types = meta[4].split(' ')[1:]
+    width = int(meta[6].split(' ')[1])
+    height = int(meta[7].split(' ')[1])
+    data = meta[10].split(' ')[1]
+    feature_count = len(types)                    
+    
+    unpacking_lut = {'F': {2: 'e', 4: 'f', 8: 'd'},
+             'I': {1: 'b', 2: 'h', 4: 'i', 8: 'q'},
+             'U': {1: 'B', 2: 'H', 4: 'I', 8: 'Q'}}
+    types_str = ''.join([unpacking_lut[t][int(s)] for t, s in zip(types, sizes)])
+
+    # Decode each point
+    offset = 0
+    point_count = width
+    points = []
+    for i in range(point_count):
+        point = []
+        for p in range(feature_count):
+            start_p = offset
+            end_p = start_p + int(sizes[p])
+            assert end_p < len(data_binary)
+            point_p = struct.unpack(types_str[p], data_binary[start_p:end_p])[0]
+            point.append(point_p)
+            offset = end_p
+        points.append(point)
+
+    # store in dataframe
+    df = pd.DataFrame(points,columns=fields, dtype=object)
+
+    return df
+
+def encode_to_pcd_file(df, ogfilename, newfilename):
+    """
+    Encode a Pandas DataFrame into a .pcd file.
+    
+    :param df: Pandas DataFrame containing radar data.
+    :param filename: Output .pcd file path.
+    """
+    # print('df to convert:')
+    # print(df)
+    print('converting df...')
+    print('Opening original point cloud data at:', ogfilename)
+
+    # opening file    
+    meta = []
+    with open (ogfilename, 'rb') as file:
+        for line in file:
+            line = line.strip().decode('utf-8')
+            meta.append(line)                        
+
+            if line.startswith('DATA'):
+                break
+
+        OG_data_binary = file.read()
+    
+    OGbinary_len = len(OG_data_binary)
+
+    #extracting headers
+    fields = meta[2].split(' ')[1:]
+    sizes = meta[3].split(' ')[1:]
+    types = meta[4].split(' ')[1:]
+    width = len(df)  # Number of points of new df
+    height = int(meta[7].split(' ')[1])
+    data = meta[10].split(' ')[1]
+    feature_count = len(types) 
+
+    # fix for padding issue
+    expected_size = width * sum([int(size) for size in sizes]) 
+    padding_len = OGbinary_len - expected_size
+
+    print('fields',fields)
+    print('sizes',sizes)
+    print('types',types)
+    print('width',width)
+    print('height',height)
+    print('data',data)
+    print('feature_count',feature_count)
+    print('OGbinary_len',OGbinary_len)
+    print('expected_size',expected_size)
+    print('padding_len',padding_len)
+    print()
+    
+    # Mapping from pandas dtypes to PCD types
+    dtype_map = {
+        'float32': ('F', 4),
+        'float64': ('F', 8),
+        'int8': ('I', 1),
+        'int16': ('I', 2),
+        'int32': ('I', 4),
+        'int64': ('I', 8),
+        'uint8': ('U', 1),
+        'uint16': ('U', 2),
+        'uint32': ('U', 4),
+        'uint64': ('U', 8),
+    }
+
+    htype_map = {'F': {2: 'float16', 4: 'float32', 8: 'float64'},
+       'I': {1: 'int8', 2: 'int16', 4: 'int32', 8: 'int64'},
+       'U': {1: 'uint8', 2: 'uint16', 4: 'uint32', 8: 'uint64'}}
+    
+    # Verifing point types
+    for i, col in enumerate(df.columns):
+        dtype = str(df[col].dtype)
+        htype = htype_map[str(types[i])][int(sizes[i])]
+
+        # rectifying dtype if mismatch
+        if dtype != htype:
+            df[col] = df[col].astype(htype)
+            dtype = str(df[col].dtype)
+
+        # print(dtype, htype)
+
+    # Construct the PCD header
+    header = ['# .PCD v0.7 - Point Cloud Data file format',
+    'VERSION 0.7',
+    'FIELDS ' + ' '.join(fields),
+    'SIZE ' + ' '.join(sizes),
+    'TYPE ' + ' '.join(types),
+    'COUNT ' + ' '.join(['1'] * len(fields)),
+    'WIDTH ' + str(width),
+    'HEIGHT ' + str(height),
+    'VIEWPOINT 0 0 0 1 0 0 0',
+    'POINTS ' + str(width),
+    'DATA binary']
+
+    # Create binary data
+    binary_data = bytearray()
+    packing_lut = {'F': {2: 'e', 4: 'f', 8: 'd'},
+                   'I': {1: 'b', 2: 'h', 4: 'i', 8: 'q'},
+                   'U': {1: 'B', 2: 'H', 4: 'I', 8: 'Q'}}
+    
+    for i in range(width):
+        for col, t, s in zip(df.columns, types, sizes):
+            binary_data.extend(struct.pack(packing_lut[t][int(s)], df[col].iloc[i]))
+
+    if padding_len:
+        binary_data.extend(b'\x00' * padding_len)
+
+    # Write to file
+    with open(newfilename, 'wb') as file:
+        # Writing header
+        for item in header:
+            file.write((item + '\n').encode('utf-8'))
+
+        # Writing data
+        file.write(binary_data)
+
+    print(f"PCD file saved to {newfilename}")
 
 
 
