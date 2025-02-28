@@ -30,14 +30,13 @@ radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_L
 
 
 # Dataset Parser (using kf because the other data aren't annotated and are interpolated)
-def parse_nusc_keyframes(nusc, sensors, args):
-
-    deformer=deform_data(args)
-
+def parse_nusc_keyframes(nusc, sensors, args, deformer):
     for scene in nusc.scene:
-        print('scene:\n',scene)
         nusc_sample = nusc.get('sample', scene['first_sample_token'])
-        print('nusc_sample:\n',nusc_sample)
+        print('\nscene:\n',scene)
+
+        if args.verbose:
+            print('nusc_sample:\n',nusc_sample)
 
         while True:
             # visualization
@@ -46,22 +45,21 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
             # Extract sensor data
             for sensor in sensors :
-                if 'CAM' in sensor: # TODO :remove
-                    continue
-                
                 # Load nusc info
                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
                 filename = os.path.join(args.nusc_root,sample_data['filename'])
-                print('sample_data:\n',sample_data)
+                if args.verbose: 
+                    print('sample_data:\n',sample_data)
+                
+                if not args.debug: 
+                    print(150*' ',end='\r',flush=True)
+                    print('current file:',filename,end='\r',flush=True)
 
                 # Setting up output folder
-                newfoldername = os.path.join(args.out_root,'samples', sensor)
-                print('Output folder name:',newfoldername)
+                newfoldername = os.path.join(args.out_root,'samples', sensor, str(int(deformer.noise_level_radar*100)))
+                if args.verbose:
+                    print('Output folder name:',newfoldername)
                 mkdir_if_missing(newfoldername)
-
-                # get current ego vel in sensor frame
-                deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
-                if args.verbose: print('ego_vel:',deformer.ego_vel)
 
                 if args.disp_all_img:
                     viz_all_cam_img(nusc_sample,save=True)
@@ -69,12 +67,17 @@ def parse_nusc_keyframes(nusc, sensors, args):
 
                 if 'RADAR' in sensor:
                     newfilename = os.path.join(newfoldername,filename.split('/')[-1])
-                    print('output filename:',newfilename)
+                    if args.verbose:
+                        print('output filename:',newfilename)
 
-                    radar_df = decode_pcd_file(filename)
+                    # get current ego vel in sensor frame
+                    deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
+                    if args.verbose: print('ego_vel:',deformer.ego_vel)
+
+                    radar_df = decode_pcd_file(filename,args.verbose)
 
                     if args.gen_lvl_grad_img:
-                        noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df)
+                        noise_lvl_grad_gen_radar(args,filename,sensor,deformer,radar_df)
                         continue
 
                     if args.gen_csv:
@@ -85,7 +88,7 @@ def parse_nusc_keyframes(nusc, sensors, args):
                     
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
-                    encode_to_pcd_file(deformed_radar_df,filename,newfilename)
+                    encode_to_pcd_file(deformed_radar_df,filename,newfilename,args.verbose)
 
                     # Read datapoints
                     dat = o3d.io.read_point_cloud(filename)
@@ -115,14 +118,29 @@ def parse_nusc_keyframes(nusc, sensors, args):
                         # viz_radar_dat(sample_data)
                         # o3d.visualization.draw_geometries([dat])
 
-                    if args.save_radar:
-                        save_radar_pointcloud(args,filename,pts_OG,pts_new,dat,newdat)
-
+                    if args.save_radar_render:
+                        save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat)
 
                 elif 'CAM' in sensor:
-                    deformed_img = deformer.deform_image(filename)
+                    for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:
+                        mkdir_if_missing(os.path.join(newfoldername,deform_type))
+                        newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
+                        if args.verbose: print('output filename:',newfilename)
 
-                input('PRESS ENTER')
+                        # Loading image from filename        
+                        img = cv2.imread(filename)
+
+                        if args.gen_lvl_grad_img:
+                            noise_lvl_grad_gen_cam(deformer,img,filename)
+                            continue
+                        
+                        deformed_img = deformer.deform_image(img,deform_type)
+
+                        cv2.imwrite(newfilename, deformed_img)
+                
+                # next sensor
+                if args.debug:
+                    input('PRESS ENTER')
 
             if nusc_sample['next'] == "":
                 #GOTO next scene
@@ -155,6 +173,30 @@ def parse_nusc_keyframes(nusc, sensors, args):
 #                 sample_data = nusc.get('sample_data', next_token)
 
 
+# auto-generation wrapper
+def genDataset(nusc, sensors, args):
+    '''
+    Generating all noise levels for both sensors
+    For Radars the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<name.pcd>
+    For Cameras the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<noise_type>/<name.jpg>
+    Resulting data is 50 x bigger than original dataset    
+    '''
+
+    for noise_level in range(10,110,10):
+        deformer=deform_data(args)
+        deformer.noise_level_radar = noise_level/100
+        deformer.noise_level_camera = noise_level/100
+        deformer.update_val()
+
+        print(50*'-','Generating data at %d %% noise'%(noise_level),50*'-')
+
+        parse_nusc_keyframes(nusc, sensors, args, deformer)
+
+
+
+
+
+# Deformer class
 class deform_data():
     def __init__(self, args):
         # NuScenes radar model : Continental ARS408-21, 76∼77GHz https://conti-engineering.com/wp-content/uploads/2020/02/ARS-408-21_EN_HS-1.pdf
@@ -830,143 +872,46 @@ class deform_data():
             input()
 
         return final_df
+      
+    def deform_image(self,img,deform_type):
 
-        
-    def deform_image(self,filename):
-        # Initializaing variables
-        img_list =[]
-        legends = []
-        
-        # Loading image from filename        
-        img = cv2.imread(filename)
+        if deform_type == 'Blur':
+            if args.verbose:
+                print('applying Blur distortion at %d %% noise'%(int(self.noise_level_cam*100)))
+            return self.blur(img)
 
-        # Generating various noises
-        blur_img = self.blur(img)
-        highexp_img = self.high_exposure(img)
-        lowexp_img = self.low_exposure(img)
-        noisy_img=self.add_noise(img)
+        if deform_type == 'High_exposure':
+            if args.verbose:
+                print('applying High_exposure distortion at %d %% noise'%(int(self.noise_level_cam*100)))
+            return self.high_exposure(img)
 
-        superfish_img = self.superfish(img)
+        if deform_type == 'Low_exposure':
+            if args.verbose:
+                print('applying Low_exposure distortion at %d %% noise'%(int(self.noise_level_cam*100)))
+            return self.low_exposure(img)
 
+        if deform_type == 'Gaussian_noise':
+            if args.verbose:
+                print('applying Gaussian_noise distortion at %d %% noise'%(int(self.noise_level_cam*100)))
+            return self.add_noise(img)
 
+        if deform_type == 'superfish':
+            if args.verbose:
+                print('applying superfish distortion at %d %% noise'%(int(self.noise_level_cam*100)))
+            return self.superfish(img)
 
-        # foggy_img = self.s(img)
+        else:
+            print('unknown deform type')
+            return img
 
+        # # Generating various noises
+        # blur_img    = self.blur(img)
+        # highexp_img = self.high_exposure(img)
+        # lowexp_img  = self.low_exposure(img)
+        # noisy_img   = self.add_noise(img)
 
-
-
-        #----------------display each type at current noise level in one plot-----------------
-
-        # disp_img_plt([img], title='original', block=True)
-        # disp_img_cv2(img, title='original', block=False)
-        # img_list.append(img)
-        # legends.append('original')
-
-        # # Blurring image
-        # blur_img = self.blur(blur_img)
-        # # disp_img_cv2(blur_img, title='blurred', block=False)
-        # img_list.append(blur_img)
-        # legends.append('blurry')
-
-        # # High exposure image
-        # highexp_img = self.high_exposure(highexp_img)
-        # # disp_img_cv2(highexp_img, title='highexp-noise', block=False)
-        # img_list.append(highexp_img)
-        # legends.append('high exposure')
-
-        # # Low exposure image
-        # lowexp_img = self.low_exposure(lowexp_img)
-        # # disp_img_cv2(lowexp_img, title='lowexp-noise', block=True)
-        # img_list.append(lowexp_img)
-        # legends.append('low exposure')
-        # disp_img_plt(imgs=img_list,title='Cluster',legends=legends,block=True)
-
-        # # Noisy image
-        # noisy_img = self.add_noise(img)
-        # disp_img_cv2(noisy_img, title='gaussian-noise', block=True)
-
-        # # Superfish image
-        # superfish_img = self.superfish(img)
-        # disp_img_cv2(superfish_img, title='superfish-distort', block=True)
-
-
-        #--------------------display a plot of each type at all noise levels----------------------
-        # # Blurring image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.blur(img))                                             # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='blur levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/blur.png')
-        
-        
-        # # High exposure image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.high_exposure(img))                                    # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,,title='high exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='high exposure levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/highexp.png')
-        
-
-        # # Low exposure image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     self.noise_level_cam=(i+1)/10                                               # convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.low_exposure(img))                                     # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/lowexp.png')
-
-        
-        # # Noisy image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.add_noise(img))                                        # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='low exposure levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Gaussian noise levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/Gauss_noise.png')
-
-
-        # # Superfish image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.superfish(img))                                        # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish super high distortion levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish distortion levels tests',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/superfish.png')
-
-
-        # # Superfish image
-        # img_list =[img]
-        # legends = ['original']
-        # for i in range(10):
-        #     if i==4:
-        #         continue
-        #     self.noise_level_cam=(i+1)/10                                               # Convert i to noise level
-        #     print('generating noise level: %d'%(int(self.noise_level_cam*100)))
-        #     img_list.append(self.superfish(img,True))                                   # Apply and store transform at level i/100
-        #     legends.append('lvl: '+str(self.noise_level_cam))                           # Store level legend
-        # # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish super high distortion levels tests',legends=legends,block=True)
-        # disp_img_plt(imgs=img_list,rows=3,cols=4,title='Superfish distortion levels tests with auto-resize',legends=legends,block=False,store_path='noisy_nuScenes/image_tests/superfish_resize.png')
-
-
-        exit()
-
+        # superfish_img = self.superfish(img)   # Deactivated
+        # foggy_img = self.s(img)               # Future work
 
 
 
@@ -994,15 +939,17 @@ def create_parser():
     # Display
     parser.add_argument('--disp_all_data', action='store_true', default=False, help='Display mosaic with camera and radar original info')
     parser.add_argument('--disp_radar', action='store_true', default=False, help='Display original Radar point cloud and new one')
-    parser.add_argument('--save_radar', action='store_true', default=False, help='Save screenshot of original Radar point cloud and new one')
+    parser.add_argument('--save_radar_render', action='store_true', default=False, help='Save new original and new Radar point cloud 3D rendering')
     parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
     parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
     parser.add_argument('--gen_lvl_grad_img', action='store_true', default=False, help='generate output files for multiple noise levels')
     parser.add_argument('--gen_csv', action='store_true', default=False, help='generate csv file out of df (debug)')
+    
+    # Verbosity level
     parser.add_argument('--verbose', '-v', action='count', default=0, help='Verbosity on|off')
 
     # Other
-    parser.add_argument('--debug', action='store_true', default=False, help='Debug argument')
+    parser.add_argument('--debug', action='store_true', default=False, help='Debug mode')
     parser.add_argument('--checksum', action='store_true', default=False, help='checks encoding/decoding of files')
 
 
@@ -1047,10 +994,13 @@ if __name__ == '__main__':
     # load arguments for visualizer functions
     visualizer.init_var(nusc,args)
 
-    # Dataset parser
-    parse_nusc_keyframes(nusc, sensors, args)
+    # Dataset parser for debug
+    if args.debug: 
+        deformer=deform_data(args)
+        parse_nusc_keyframes(nusc, sensors, args)
 
-    #TODO : generate_dataset() wrapper
+    # generate noisy dataset
+    genDataset(nusc, sensors, args)
 
     exit('end of script')
 
@@ -1058,7 +1008,7 @@ if __name__ == '__main__':
 
 '''
 Running command:
-python dataset_handler.py -kf --sensor <SENSOR> -v
+python dataset_handler.py -kf --debug --sensor <SENSOR> -v
 
 
 some reading :
