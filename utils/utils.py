@@ -131,7 +131,7 @@ def decode_pcd_file(filename,verbose=False):
     # store in dataframe
     df = pd.DataFrame(points,columns=fields, dtype=object)
 
-    return df
+    return df, types_str
 
 def encode_to_pcd_file(df, ogfilename, newfilename,verbose=False):
     """
@@ -253,9 +253,6 @@ def encode_to_pcd_file(df, ogfilename, newfilename,verbose=False):
 
     if verbose:
         print(f"PCD file saved to {newfilename}")
-
-
-
 
 
 # nuScenes functions utils
