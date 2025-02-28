@@ -15,6 +15,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from sklearn.model_selection import train_test_split
+from utils.utils import *
 # from torchsummary import summary
 
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
@@ -32,8 +33,61 @@ else:
     print('no CUDA installation found, using CPU')
 
 
-# DATALOADER
+def convert_radardf_to_tensor(radar_df, types_str):
+    npdtype_list = []
+    tensor_list = []
+    torchdtype = torch.float32
 
+    for typechar in types_str:
+        # floats
+        if typechar == 'e':
+            npdtype = np.float16
+
+        elif typechar == 'f':
+            npdtype = np.float32
+
+        elif typechar == 'd':
+            npdtype = np.float64
+            torchdtype = torch.float64 # promote to 64 floats if at least one column is in this type
+
+        # signed int
+        elif typechar == 'b':
+            npdtype = np.int8
+
+        elif typechar == 'h':
+            npdtype = np.int16
+
+        elif typechar == 'i':
+            npdtype = np.int32
+
+        elif typechar == 'q':
+            npdtype = np.int64
+
+        # unsigned int
+        elif typechar == 'B':
+            npdtype = np.uint8
+
+        elif typechar == 'H':
+            npdtype = np.uint16
+
+        elif typechar == 'I':
+            npdtype = np.uint32
+
+        elif typechar == 'Q':
+            npdtype = np.uint64
+
+        npdtype_list.append(npdtype)
+
+    for col, dtypenp in zip(radar_df.columns,npdtype_list):
+        tensor_list.append(torch.tensor(radar_df[col].values.astype(dtypenp), dtype=torch.float32))
+        
+    combined_tensor = torch.stack(tensor_list, dim=-1)
+
+    return combined_tensor
+
+
+
+# DATALOADER
 def create_df(data_path):
     '''
     For Radars the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<name.pcd>
@@ -47,18 +101,20 @@ def create_df(data_path):
     data_paths_radar = []
     sensor_radar = []
     
+    print('Creating dataset')
+
     for sensor in os.listdir(data_path):
         for noise_level in os.listdir(os.path.join(data_path,sensor)):
             if 'CAM' in sensor: 
                 for noise_type in os.listdir(os.path.join(data_path,sensor,noise_level)):
                     for item in os.listdir(os.path.join(data_path,sensor,noise_level,noise_type)):
                         data_paths_cam.append(os.path.join(data_path,sensor,noise_level,noise_type,item))
-                        labels_cam.append(noise_level)
+                        labels_cam.append(int(noise_level[:-1])) # encoding noise value to an integer (1,2,3,4,5,6,7,8,9,10])
                         sensor_cam.append(sensor)
             else:
                 for item in os.listdir(os.path.join(data_path,sensor,noise_level)):
                     data_paths_radar.append(os.path.join(data_path,sensor,noise_level,item))
-                    labels_radar.append(noise_level)
+                    labels_radar.append(int(noise_level[:-1])) # encoding noise value to an integer (1,2,3,4,5,6,7,8,9,10])
                     sensor_radar.append(sensor)
 
     # original dataset --> no added noise
@@ -66,14 +122,14 @@ def create_df(data_path):
         for item in os.listdir(os.path.join('nuScenes','samples',sensor)):
             if 'CAM' in sensor:
                 data_paths_cam.append(os.path.join(data_path,sensor,noise_level,noise_type,item))
-                labels_cam.append(0.0)
+                labels_cam.append(0)
                 sensor_cam.append(sensor)
             elif 'RADAR' in sensor:
                 if os.path.exists(os.path.join(data_path,'samples',sensor,'10',item)):
                     # Making sure we are gathering only non-empty data points. 
                     # The dataset handler skipped those so they arent in noisy folders.
                     data_paths_radar.append(os.path.join(data_path,sensor,noise_level,noise_type,item))
-                    labels_radar.append(0.0)
+                    labels_radar.append(0)
                     sensor_radar.append(sensor)
 
     df_cam = pd.DataFrame({'data':data_paths_cam,'labels':labels_cam,'sensor':sensor_cam})
@@ -86,6 +142,8 @@ def get_df_split(df,sensortype):
     r_train = 0.8
     r_test = 0.1
     r_val = 0.1
+
+    print('Creating splits')
 
     df_train = pd.DataFrame(columns = df.columns)
     df_test = pd.DataFrame(columns = df.columns)
@@ -115,32 +173,33 @@ def get_df_split(df,sensortype):
             df_test =  pd.concat([df_test,df_test_temp], ignore_index=True)
             df_val = pd.concat([df_val,df_val_temp], ignore_index=True)
 
+    print('df_train:',df_train)
+    print('df_test:',df_test)
+    print('df_val:',df_val)
 
     return df_train, df_test, df_val
 
-def load_imgs(batch):
+def load_imgs(row):
+    '''
+    takes a row of a df in input
+    returns a tensor with the loaded image and a tensor of its label
+    '''
+    data = torch.tensor(cv2.imread(row['data']), dtype=torch.float32).permute(2, 0, 1).to(device)
+    labels = torch.tensor(row['labels'], dtype=torch.long).to(device)
+    return data, labels
+
+# TODO: nan data case check
+def load_pcd(row):
     '''
     takes a df in input (batch)
     returns a tensor with the loaded images
     '''
-    data_list = []
-    label_list = batch['labels'].to_numpy()
+    labels = torch.tensor(row['labels'], dtype=torch.long).to(device)
+    radar_df, types_str = decode_pcd_file(row['data'],verbose=False)
 
-    # extract images
-    for i in range(len(batch)):
-        filepath = batch.loc[i,'data']
+    data = convert_radardf_to_tensor(radar_df,types_str).to(device)
 
-        data_list.append(cv2.imread(filepath))
-    
-
-    # converting to torch tensor
-    
-    labels = torch.tensor(label_list, dtype=torch.float32).permute(2, 0, 1).to(device)
-    data = torch.tensor(np.array(data_list), dtype=torch.long).to(device)
     return data, labels
-
-def load_pcd():
-    pass
 
 def batch_generator(df, batch_size):
     indices = list(df.index)
@@ -162,34 +221,53 @@ def batch_generator(df, batch_size):
 
 # MODELS
 class simple_CNN(torch.nn.Module):
-    def __init__(self,image_size,n_conv_layers,output_size):
+    def __init__(self,image_shape,output_size,conv_k,dropout_prob=0):
         super(simple_CNN, self).__init__()
-        self.image_size = image_size
-        self.n_conv_layers = n_conv_layers
-        self.output_size = output_size
-
-        # self.input = nn.Sequential(nn.Linear(input_size,hidden_size),nn.ReLU())
-        # self.hidden = nn.Sequential(nn.Linear(hidden_size,hidden_size),nn.ReLU())
         
-        self.head = nn.Sequential(nn.Linear(128,output_size))
+        image_size = image_shape[:2] # 1080 x 1920
+        in_channels = image_shape[2] # 3
+
+        self.input = nn.Sequential(nn.Conv2d(in_channels=in_channels, out_channels=16, kernel_size=(conv_k,conv_k), \
+                               stride=1, padding=0, bias=True, padding_mode = 'zeros'),
+                               nn.ReLU(),
+                               nn.Dropout2d(p=dropout_prob),
+                               nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)))
+        image_size=np.floor((image_size-2)/2) # 539x959
+
+        self.conv1 = nn.Sequential(nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(conv_k,conv_k), \
+                               stride=1, padding=0, bias=True, padding_mode = 'zeros'),
+                               nn.ReLU(),
+                               nn.Dropout2d(p=dropout_prob),
+                               nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)))
+        image_size=np.floor((image_size-2)/2) # 268x478
+        
+        self.conv2 = nn.Sequential(nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(conv_k,conv_k), \
+                               stride=1, padding=0, bias=True, padding_mode = 'zeros'),
+                               nn.ReLU(),
+                               nn.Dropout2d(p=dropout_prob),
+                               nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)))
+        image_size=np.floor((image_size-2)/2) # 133x238
+        
+        self.conv3 = nn.Sequential(nn.Conv2d(in_channels=64, out_channels=128, kernel_size=(conv_k,conv_k), \
+                               stride=1, padding=0, bias=True, padding_mode = 'zeros'),
+                               nn.ReLU(),
+                               nn.Dropout2d(p=dropout_prob),
+                               nn.MaxPool2d(kernel_size=(2, 2), stride=(2, 2)))
+        image_size=np.floor((image_size-2)/2) # 65x118
+
+
+
+        self.head = nn.Sequential(nn.Flatten(),
+                                  nn.Linear(int(128*image_size[0]*image_size[1]),output_size))
 
     def forward(self, x):
-        # input layer connect to data
-        x = nn.Conv2d(self.image_size,)
+        x = self.input(x)
 
-        for i in range(self.n_conv_layers):
-            pass
-
-        # x = self.input(x)
-        # for i in range(5):
-        #     # hidden layers
-        #     x = self.hidden(x)
-
-
-
-        # output layer / head
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
+        
         x = self.head(x)
-
         return x
 
 # train / test functions
@@ -199,37 +277,50 @@ def train_model (model,n_epochs,batch_size,df_train,df_val,optimizer,loss_fct,sc
 
     print('Training')
     for epoch in range(n_epochs):
+        print('Epoch:',epoch)
         ################Training################
         model.train()   # set model in train mode
+        epoch_loss = 0
 
-        for batch_idx, (img_batch, labels) in enumerate(df_train):
-            pass
+        for batch_idx, batch in enumerate(batch_generator(df_train,batch_size)):
+            print(100*' ',end='\r')
+            print('batch:',batch_idx, '/', round(len(df_train)/batch_size),end='\r')
+            # Load data
+            X_train = torch.stack([x[0] for x in batch])
+            labels_train = torch.stack([x[1] for x in batch])
+            
+            # generate predictions (i.e noise values)
+            pred = model(X_train)
 
-        # Load data
-        X_train, y_train = load_imgs(df_train)
-        X_val, y_val = load_imgs(df_val)
+            # calculate loss
+            loss = loss_fct(pred,labels_train)
 
-        # generate predictions
-        pred = model(X_train)
+            # backprop loss
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
 
-        # calculate loss
-        loss = loss_fct(pred,y_train)
+            epoch_loss += loss.item()
+        
 
-        # backprop loss
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
 
         ################VALIDATION################
-        # val_loss = test_model(model,val_split['X'],val_split['y'],loss_fct)  # using test function on validation dataset
-        val_loss=0
+        model.eval()
 
-        print('\rEpoch: %d \t train loss: %0.3f \t val loss: %0.3f'%(epoch+1, loss.item(),val_loss.item()), end='',flush=True)
-        
+        val_data = batch_generator(df_val,len(df_val)) # using batch generator to generate the full val dataset
+        X_val = torch.stack([x[0] for x in val_data])
+        labels_val = torch.stack([x[1] for x in val_data])
+
+        val_pred = model(X_val)
+        val_loss = loss_fct(val_pred,labels_val)
+
+
+
         # scheduler step
         if scheduler:
             scheduler.step()
 
+        print('\ntrain loss: %0.3f \t val loss: %0.3f'%(epoch+1, loss.item(),val_loss.item()))
 
         # output values
         history['train_loss'].append(loss.item())
@@ -263,6 +354,13 @@ if __name__ == '__main__':
     n_test = len(df_test)
     n_val = len(df_val)
 
+    img_shape = np.array(cv2.imread(df_train.loc[0,'data']).shape)
+    print('image shape:',img_shape)
+
+    labels = df_train['labels'].drop_duplicates().sort_values().reset_index(drop=True)
+    n_labels = len(labels)
+    print('labels:',labels)
+    print('n_labels:',n_labels)
 
     # param
     n_epochs=10
@@ -270,11 +368,13 @@ if __name__ == '__main__':
     batch_size = 32
     
     # init
-    model = simple_CNN().to(device)
+    model = simple_CNN(image_shape=img_shape, output_size=n_labels,conv_k=3,dropout_prob=0).to(device)
+    print('model:\n',model)
+
     loss_fct = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr, eps=1e-20)
     scheduler=None
 
-    # train
+    # train cam
     train_model(model,n_epochs,batch_size,df_train,df_val,optimizer,loss_fct,scheduler)
     
