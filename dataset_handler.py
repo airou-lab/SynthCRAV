@@ -32,6 +32,8 @@ radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_L
 # Dataset Parser (using kf because the other data aren't annotated and are interpolated)
 def parse_nusc_keyframes(nusc, sensors, args, deformer):
     for scene in nusc.scene:
+        # if scene['name']!='scene-0796':
+        #     continue
         nusc_sample = nusc.get('sample', scene['first_sample_token'])
         print('\nscene:\n',scene)
 
@@ -69,12 +71,18 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     newfilename = os.path.join(newfoldername,filename.split('/')[-1])
                     if args.verbose:
                         print('output filename:',newfilename)
+                    if os.path.exists(newfilename):
+                            continue
 
                     # get current ego vel in sensor frame
                     deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
                     if args.verbose: print('ego_vel:',deformer.ego_vel)
 
                     radar_df = decode_pcd_file(filename,args.verbose)
+                    
+                    if radar_df.isna().any().any():
+                        print('NaN value in dataframe: skipped')
+                        continue
 
                     if args.gen_lvl_grad_img:
                         noise_lvl_grad_gen_radar(args,filename,sensor,deformer,radar_df)
@@ -126,6 +134,11 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         mkdir_if_missing(os.path.join(newfoldername,deform_type))
                         newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
                         if args.verbose: print('output filename:',newfilename)
+                        if os.path.exists(newfilename):
+                            continue
+                        if 'night' in scene['description'].lower():
+                            # not considering data that has already low exposure and gaussian noise due to nighttime
+                            continue
 
                         # Loading image from filename        
                         img = cv2.imread(filename)
@@ -185,7 +198,7 @@ def genDataset(nusc, sensors, args):
     for noise_level in range(10,110,10):
         deformer=deform_data(args)
         deformer.noise_level_radar = noise_level/100
-        deformer.noise_level_camera = noise_level/100
+        deformer.noise_level_cam = noise_level/100
         deformer.update_val()
 
         print(50*'-','Generating data at %d %% noise'%(noise_level),50*'-')
@@ -286,6 +299,7 @@ class deform_data():
         if max_range+10>self.radar_sensor_bounds['dist']['range']['far_range']: 
             # max range cannot exceed radar actual bounds 
             max_range = self.radar_sensor_bounds['dist']['range']['far_range']
+
         
         for i in range(num_ghosts):
             #---- Generating x,y,z coordinates ------
@@ -914,9 +928,6 @@ class deform_data():
         # foggy_img = self.s(img)               # Future work
 
 
-
-
-
 #--------------------------------------------------------------------Main--------------------------------------------------------------------
 def create_parser():
 
@@ -952,12 +963,9 @@ def create_parser():
     parser.add_argument('--debug', action='store_true', default=False, help='Debug mode')
     parser.add_argument('--checksum', action='store_true', default=False, help='checks encoding/decoding of files')
 
-
-
-
-
-
     return parser
+
+
 
 def check_args(args):
     sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
@@ -998,6 +1006,8 @@ if __name__ == '__main__':
     if args.debug: 
         deformer=deform_data(args)
         parse_nusc_keyframes(nusc, sensors, args)
+
+    temp_fct(nusc)
 
     # generate noisy dataset
     genDataset(nusc, sensors, args)

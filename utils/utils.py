@@ -490,15 +490,20 @@ def get_ego_vel(nusc,nusc_sample,sensor):
     ego_pose = nusc.get('ego_pose', sample_data['ego_pose_token'])
     cs_record = nusc.get('calibrated_sensor', sample_data['calibrated_sensor_token'])
 
-    # print(ego_pose)
-    # print(cs_record)
-
     current_pose = ego_pose['translation']
-    next_pose = nusc.get('ego_pose', nusc.get('sample_data', nusc.get('sample', nusc_sample['next'])['data'][sensor])['ego_pose_token'])['translation']
 
-    # ego vel in global coord
-    ego_vel_global_1 = (np.array(next_pose) -np.array(current_pose))*2  #(2fps), velocity in global coordinates
-    ego_vel_global = np.array([sqrt(ego_vel_global_1[0]**2+ego_vel_global_1[1]**2),0,0])
+    if nusc_sample['next'] != '' :
+        next_pose = nusc.get('ego_pose', nusc.get('sample_data', nusc.get('sample', nusc_sample['next'])['data'][sensor])['ego_pose_token'])['translation']
+
+        # ego vel in global coord
+        ego_vel_global_estim = (np.array(next_pose) -np.array(current_pose))*2  #(2fps), velocity in global coordinates
+    else:
+        prev_pose = nusc.get('ego_pose', nusc.get('sample_data', nusc.get('sample', nusc_sample['prev'])['data'][sensor])['ego_pose_token'])['translation']
+
+        # ego vel in global coord
+        ego_vel_global_estim = (np.array(current_pose)-np.array(prev_pose))*2  #(2fps), velocity in global coordinates
+    
+    ego_vel_global = np.array([sqrt(ego_vel_global_estim[0]**2+ego_vel_global_estim[1]**2),0,0])
 
     # print(ego_vel_global)
 
@@ -506,7 +511,7 @@ def get_ego_vel(nusc,nusc_sample,sensor):
     # quaternion1 = Quaternion(ego_pose['rotation'])
     # rotation_matrix1 = quaternion1.rotation_matrix   
     # ego_yaw_angle = degrees(np.arctan2(rotation_matrix1[1, 0], rotation_matrix1[0, 0])) # from tracking pipeline
-   
+
     # # ego vel in vel frame
     # ego_vel_ego = rot_z(ego_yaw_angle).T @ ego_vel_global
 
@@ -519,6 +524,7 @@ def get_ego_vel(nusc,nusc_sample,sensor):
     # print(sensor_yaw_angle)
     # ego vel in sensor frame
     ego_vel_sensor = rot_z(sensor_yaw_angle).T @ ego_vel_global
+    
     return ego_vel_sensor
 
 

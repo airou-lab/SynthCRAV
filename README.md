@@ -26,3 +26,12 @@ pip install pandas
 Note: <br> 
 The nuscenes-devkit install will also take care of installing the correct versions for numpy, pyquaternion, opencv and matplotlib so it is advised to install it first.
 
+install pytorch:
+```shell
+# On windows with cuda 12.8 (tested with Geforce GTX 1050 mobile):
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# On linux with cuda 12.3 (tested with Geforce RTX 3060):
+pip3 install torch torchvision torchaudio
+```
+
