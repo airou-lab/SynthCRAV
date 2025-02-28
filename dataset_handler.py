@@ -78,7 +78,7 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
                     if args.verbose: print('ego_vel:',deformer.ego_vel)
 
-                    radar_df = decode_pcd_file(filename,args.verbose)
+                    radar_df,_ = decode_pcd_file(filename,args.verbose)
                     
                     if radar_df.isna().any().any():
                         print('NaN value in dataframe: skipped')
@@ -1007,8 +1007,6 @@ if __name__ == '__main__':
         deformer=deform_data(args)
         parse_nusc_keyframes(nusc, sensors, args)
 
-    temp_fct(nusc)
-
     # generate noisy dataset
     genDataset(nusc, sensors, args)
 
@@ -1034,5 +1032,7 @@ https://asp-eurasipjournals.springeropen.com/articles/10.1155/2010/610920#:~:tex
 
 https://github.com/Gil-Mor/iFish
 https://github.com/noahzn/FoHIS
+
+test
 
 '''
