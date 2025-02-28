@@ -479,38 +479,41 @@
 
 
 
-from math import *
+# from math import *
+# import numpy as np
+# from nuscenes import NuScenes
+# from utils.utils import *
+# import pandas as pd
+# pd.set_option('display.max_rows', None)
+# nusc = NuScenes(version='v1.0-mini', dataroot='./nuScenes', verbose=True)
+
+
+# for scene in nusc.scene:
+#         print('scene:\n',scene)
+#         nusc_sample = nusc.get('sample', scene['first_sample_token'])
+#         print('nusc_sample:\n',nusc_sample)
+
+#         while True:
+#             for sensor in ['RADAR_FRONT', 'RADAR_FRONT_LEFT', 'RADAR_FRONT_RIGHT', 'RADAR_BACK_LEFT', 'RADAR_BACK_RIGHT', 'LIDAR_TOP']:
+#                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
+#                 filename = 'nuScenes/'+sample_data['filename']
+#                 sample_name = sample_data['filename'].split('/')[-1].split('.')[0]
+                
+#                 df = pd.read_csv('./noisy_nuScenes/examples/RADAR/'+sample_name+'.csv')
+                
+#                 rcs = df['rcs'].sort_values().to_numpy()
+#                 rcs_lin = 10**(rcs/10)
+#                 rcs_noise = np.array([10 * log (x*(1-0.1),10) for x in rcs_lin])
+#                 rcs_noise_round = np.array([round(x * 2) / 2] for x in rcs_noise)
+
+
+#                 rcs_comp = pd.DataFrame({'rcs': rcs, 'rcs_lin': rcs_lin, 'rcs_noise': rcs_noise, 'rcs_noise_round': rcs_noise_round})
+                
+                
+#                 print(rcs_comp)
+#                 exit()
 import numpy as np
-from nuscenes import NuScenes
-from utils.utils import *
-import pandas as pd
-pd.set_option('display.max_rows', None)
-nusc = NuScenes(version='v1.0-mini', dataroot='./nuScenes', verbose=True)
 
-
-for scene in nusc.scene:
-        print('scene:\n',scene)
-        nusc_sample = nusc.get('sample', scene['first_sample_token'])
-        print('nusc_sample:\n',nusc_sample)
-
-        while True:
-            for sensor in ['RADAR_FRONT', 'RADAR_FRONT_LEFT', 'RADAR_FRONT_RIGHT', 'RADAR_BACK_LEFT', 'RADAR_BACK_RIGHT', 'LIDAR_TOP']:
-                sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
-                filename = 'nuScenes/'+sample_data['filename']
-                sample_name = sample_data['filename'].split('/')[-1].split('.')[0]
-                
-                df = pd.read_csv('./noisy_nuScenes/examples/RADAR/'+sample_name+'.csv')
-                
-                rcs = df['rcs'].sort_values().to_numpy()
-                rcs_lin = 10**(rcs/10)
-                rcs_noise = np.array([10 * log (x*(1-0.1),10) for x in rcs_lin])
-                rcs_noise_round = np.array([round(x * 2) / 2] for x in rcs_noise)
-
-
-                rcs_comp = pd.DataFrame({'rcs': rcs, 'rcs_lin': rcs_lin, 'rcs_noise': rcs_noise, 'rcs_noise_round': rcs_noise_round})
-                
-                
-                print(rcs_comp)
-                exit()
-                
-                
+while True:
+    print(np.random.randint(1,11)/10)
+    input()
