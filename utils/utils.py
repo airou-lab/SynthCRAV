@@ -82,9 +82,10 @@ def cart_to_polar(x,y):
     return r, theta
 
 # Radar data encoder/decoder
-def decode_pcd_file(filename):
+def decode_pcd_file(filename,verbose=False):
     # Extract sensor data
-    print('Opening point cloud data at:', filename)
+    if verbose:
+        print('Opening point cloud data at:', filename)
 
     # opening file    
     meta = []
@@ -132,7 +133,7 @@ def decode_pcd_file(filename):
 
     return df
 
-def encode_to_pcd_file(df, ogfilename, newfilename):
+def encode_to_pcd_file(df, ogfilename, newfilename,verbose=False):
     """
     Encode a Pandas DataFrame into a .pcd file.
     
@@ -141,8 +142,9 @@ def encode_to_pcd_file(df, ogfilename, newfilename):
     """
     # print('df to convert:')
     # print(df)
-    print('converting df...')
-    print('Opening original point cloud data at:', ogfilename)
+    if verbose:
+        print('converting df...')
+        print('Opening original point cloud data at:', ogfilename)
 
     # opening file    
     meta = []
@@ -170,18 +172,19 @@ def encode_to_pcd_file(df, ogfilename, newfilename):
     # fix for padding issue
     expected_size = width * sum([int(size) for size in sizes]) 
     padding_len = OGbinary_len - expected_size
-
-    print('fields',fields)
-    print('sizes',sizes)
-    print('types',types)
-    print('width',width)
-    print('height',height)
-    print('data',data)
-    print('feature_count',feature_count)
-    print('OGbinary_len',OGbinary_len)
-    print('expected_size',expected_size)
-    print('padding_len',padding_len)
-    print()
+    
+    if verbose>=3:
+        print('fields',fields)
+        print('sizes',sizes)
+        print('types',types)
+        print('width',width)
+        print('height',height)
+        print('data',data)
+        print('feature_count',feature_count)
+        print('OGbinary_len',OGbinary_len)
+        print('expected_size',expected_size)
+        print('padding_len',padding_len)
+        print()
     
     # Mapping from pandas dtypes to PCD types
     dtype_map = {
@@ -248,7 +251,8 @@ def encode_to_pcd_file(df, ogfilename, newfilename):
         # Writing data
         file.write(binary_data)
 
-    print(f"PCD file saved to {newfilename}")
+    if verbose:
+        print(f"PCD file saved to {newfilename}")
 
 
 
