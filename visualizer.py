@@ -40,6 +40,30 @@ def init_var(nusc_inst,args_inst):
     nusc = nusc_inst
     args = args_inst
 
+def viz_nusc(nusc,singleSensor='CAM_FRONT'):
+    # parse nusc and display camera views
+    for scene in nusc.scene:
+        nusc_sample = nusc.get('sample', scene['first_sample_token'])
+        print('scene:\n',scene)
+        print('nusc_sample:\n',nusc_sample)
+        while True:
+            sample_data = nusc.get('sample_data', nusc_sample['data'][singleSensor])
+            filename = 'nuScenes/'+sample_data['filename']
+            
+            # viz_all_cam_img(nusc_sample)
+            img = cv2.imread(filename)
+            disp_img_cv2(img,scene['name'])
+
+
+            if nusc_sample['next'] == "":
+                #GOTO next scene
+                print("no next data in scene %s"%(scene['name']))
+                break
+            else:
+                #GOTO next sample
+                next_token = nusc_sample['next']
+                nusc_sample = nusc.get('sample', next_token)
+
 def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes = None,nsweeps: int = 1,underlay_map: bool = True,use_flat_vehicle_coordinates: bool = True):
         """
         Render sample data onto axis.
@@ -150,7 +174,7 @@ def viz_radar_dat(sample_data):
 
 def viz_all_cam_img(nusc_sample, save=False):
     # Visualize mosaic of all Camera images of this sample   
-    fig, ax = plt.subplots(3,2)
+    fig, ax = plt.subplots(2,3)
     ax = ax.flatten()
     
     for i, sensor in enumerate(cam_list):
@@ -162,12 +186,13 @@ def viz_all_cam_img(nusc_sample, save=False):
 
         ax[i].set_title(sensor)
 
-    plt.show(block=False)
-
-    figname = filename.split('/')[-1]
-    if save:
+    if not save: 
+        plt.show(block=True)
+    else:
+        figname = filename.split('/')[-1]
         mkdir_if_missing('./noisy_nuScenes/examples/CAM/cam_img/')
         plt.savefig('./noisy_nuScenes/examples/CAM/cam_img/'+figname)
+    
     plt.close()
 
 def viz_all_sample_radar(nusc_sample):
@@ -248,7 +273,7 @@ def disp_radar_pts(points,title='',display=True,store_path=''):
     if store_path!='':
         plt.savefig(store_path) 
 
-def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, store_path=''):
+def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],show=True, store_path=''):
     # Display any given image in a matplotlib plot with automatic subplot sizing
 
     if not imgs or len(imgs)>(rows*cols):
@@ -270,16 +295,27 @@ def disp_img_plt(imgs=[],rows=10,cols=10,title='',legends=[],block=True, store_p
         if legends:
             ax[i].set_title(legends[i])
 
+        ax[i].set_xticks([])
+        ax[i].set_yticks([])
+        ax[i].set_xticklabels([])
+        ax[i].set_yticklabels([])
+
+        for spine in ax[i].spines.values():
+            spine.set_edgecolor('black')
+
     if title != '':
         fig.suptitle(title)
     
     plt.tight_layout(pad=0)
-    plt.show(block=block)
+    
+    if show: 
+        plt.show()
 
     if store_path!='':
         plt.savefig(store_path) 
+        plt.close()
 
-def disp_img_cv2(img,title,block=True, store_path=''):
+def disp_img_cv2(img,title='',block=True, store_path=''):
     # Display any given image in a cv2 plot
     cv2.imshow(title,img)
     
@@ -298,7 +334,7 @@ def disp_img_cv2(img,title,block=True, store_path=''):
     if store_path!='':
         cv2.imwrite(store_path,img)
 
-def save_radar_pointcloud(args,filename,pts_OG,pts_new,dat,newdat):
+def save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat):
     # Saving radar point cloud rendering in matplotlib and in open3d bird eyeview
     sensor = filename.split('/')[2]
     sensor_type = sensor.split('_')[0]
@@ -354,19 +390,16 @@ def radar_df_to_excel(radar_df,filename):
     print('saved to %s'%('./noisy_nuScenes/samples/RADAR_FRONT/examples/'+name))
     input()
 
-def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
+
+# Noise level gradient generation
+def noise_lvl_grad_gen_radar(args,filename,sensor,deformer,radar_df):
     '''
     Generates a gradient of noise levels in matplotlib subplot
     output folder is in out_root/examples
     '''
-    if 'CAM' in sensor:
-        sensor_type = 'CAM' 
-    else:
-        sensor_type='RADAR'
-
     token = filename.split('/')[-1].split('.')[0]
 
-    output_folder = os.path.join(args.out_root,'examples',sensor_type,sensor,'noise_lvl',token)
+    output_folder = os.path.join(args.out_root,'examples','RADAR',sensor,'noise_lvl',token)
     print('generating gradient of noise levels at',output_folder)
     mkdir_if_missing(output_folder)
 
@@ -617,3 +650,75 @@ def noise_lvl_grad_gen(args,filename,sensor,deformer,radar_df):
 
     print('Finished plotting all noise levels')
     input('PRESS ANY KEY')
+
+def noise_lvl_grad_gen_cam(deformer,og_img,filename):
+    #--------------------display a plot of each type at all noise levels----------------------
+    token = filename.split('/')[-1].split('.')[0]
+    sensor = filename.split('__')[1]
+
+    for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:     
+        print('Deforming image with', deform_type,'deformer')
+
+        # init image list and legend list
+        img_list =[og_img]
+        legends = ['original']
+
+        store_root=os.path.join('noisy_nuScenes','examples', 'CAM',sensor,'noise_level',token)
+        mkdir_if_missing(store_root)
+
+        for i in range(1,11,1):
+            deformer.noise_level_cam = i/10                                               # Convert i to noise level
+            print('generating noise level at: %d%%'%(int(deformer.noise_level_cam*100)))
+
+            # Apply and store transform at level i/100
+            noisy_img = deformer.deform_image(og_img,deform_type)
+            img_list.append(noisy_img)
+
+            # Also save a OG vs current noise plot
+            store_path=os.path.join(store_root, deform_type+'_'+str(i)+'.png')
+            disp_img_plt(imgs=[og_img,noisy_img],rows=1,cols=2,title=deform_type+' at '+str(deformer.noise_level_cam)+'%%',\
+                        legends=['Original',str(deformer.noise_level_cam * 100)+'% noise'],show=False,store_path=store_path)
+            
+            # Store level legend
+            legends.append(str(deformer.noise_level_cam * 100)+'% noise')
+
+        store_path=os.path.join(store_root, deform_type+'.png')
+        disp_img_plt(imgs=img_list,rows=3,cols=4,title=deform_type+' levels tests',legends=legends,show=False,store_path=store_path)
+    
+    print('Finished plotting all noise levels')
+    input('PRESS ANY KEY')
+
+
+#----------------display each type at current noise level in one plot-----------------
+
+        # disp_img_plt([img], title='original', block=True)
+        # disp_img_cv2(img, title='original', block=False)
+        # img_list.append(img)
+        # legends.append('original')
+
+        # # Blurring image
+        # blur_img = self.blur(blur_img)
+        # # disp_img_cv2(blur_img, title='blurred', block=False)
+        # img_list.append(blur_img)
+        # legends.append('blurry')
+
+        # # High exposure image
+        # highexp_img = self.high_exposure(highexp_img)
+        # # disp_img_cv2(highexp_img, title='highexp-noise', block=False)
+        # img_list.append(highexp_img)
+        # legends.append('high exposure')
+
+        # # Low exposure image
+        # lowexp_img = self.low_exposure(lowexp_img)
+        # # disp_img_cv2(lowexp_img, title='lowexp-noise', block=True)
+        # img_list.append(lowexp_img)
+        # legends.append('low exposure')
+        # disp_img_plt(imgs=img_list,title='Cluster',legends=legends,block=True)
+
+        # # Noisy image
+        # noisy_img = self.add_noise(img)
+        # disp_img_cv2(noisy_img, title='gaussian-noise', block=True)
+
+        # # Superfish image
+        # superfish_img = self.superfish(img)
+        # disp_img_cv2(superfish_img, title='superfish-distort', block=True)
