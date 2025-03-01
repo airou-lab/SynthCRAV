@@ -512,8 +512,21 @@
                 
 #                 print(rcs_comp)
 #                 exit()
-import numpy as np
 
-while True:
-    print(np.random.randint(1,11)/10)
-    input()
+# while True:
+#     print(np.random.randint(1,11)/10)
+#     input()
+
+import numpy as np
+import os
+import cv2
+cv2.imread('./noisy_nuScenes/samples/CAM_BACK/10/Low_exposure/n015-2018-07-18-11-50-34+0800__CAM_BACK__1531886241937525.jpg')
+exit(0)
+data_path = './noisy_nuScenes/samples'
+for sensor in os.listdir(data_path):
+    for noise_level in os.listdir(os.path.join(data_path,sensor)):
+        if 'CAM' in sensor: 
+            for noise_type in os.listdir(os.path.join(data_path,sensor,noise_level)):
+                for item in os.listdir(os.path.join(data_path,sensor,noise_level,noise_type)):
+                    print(os.path.join(data_path,sensor,noise_level,noise_type,item))
+                    cv2.imread(os.path.join(data_path,sensor,noise_level,noise_type,item))             	
