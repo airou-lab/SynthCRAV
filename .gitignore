@@ -9,4 +9,4 @@ test*
 data/nuScenes
 data/noisy_nuScenes/examples/CAM
 data/noisy_nuScenes/examples/RADAR/csv
-data/noisy_nuScenes/samples
+data/noisy_nuScenes/samples/
