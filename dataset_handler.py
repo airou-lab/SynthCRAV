@@ -32,75 +32,67 @@ radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_L
 # Dataset Parser (using kf because the other data aren't annotated and are interpolated)
 def parse_nusc_keyframes(nusc, sensors, args, deformer):
     for scene in nusc.scene:
-        # if scene['name']!='scene-0796':
-        #     continue
         nusc_sample = nusc.get('sample', scene['first_sample_token'])
         print('\nscene:\n',scene)
 
-        if args.verbose:
-            print('nusc_sample:\n',nusc_sample)
-
         while True:
-            # visualization
-            if args.disp_all_data:
-                disp_all_sensor_mosaic(nusc_sample)
-
             # Extract sensor data
             for sensor in sensors :
                 # Load nusc info
                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
-                filename = os.path.join(args.nusc_root,sample_data['filename'])
-                if args.verbose: 
-                    print('sample_data:\n',sample_data)
+                filename = os.path.join(args.nusc_root,sample_data['filename'])            
                 
-                if not args.debug: 
+                if not args.debug:
                     print(150*' ',end='\r',flush=True)
                     print('current file:',filename,end='\r',flush=True)
 
                 # Setting up output folder
                 newfoldername = os.path.join(args.out_root,'samples', sensor, str(int(deformer.noise_level_radar*100)))
-                if args.verbose:
-                    print('Output folder name:',newfoldername)
                 mkdir_if_missing(newfoldername)
 
-                if args.disp_all_img:
-                    viz_all_cam_img(nusc_sample,save=True)
-                    continue
+                if args.verbose:
+                    print('Output folder name:',newfoldername)
+                    print('nusc_sample:\n',nusc_sample)
+                    print('sample_data:\n',sample_data)
 
+
+                ##RADAR DATA SYNTHESIZER##
                 if 'RADAR' in sensor:
+                    # set output pcd file name
                     newfilename = os.path.join(newfoldername,filename.split('/')[-1])
-                    if args.verbose:
-                        print('output filename:',newfilename)
-                    # if not args.debug and os.path.exists(newfilename):
-                    #     continue
 
                     # get current ego vel in sensor frame
                     deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
-                    if args.verbose: print('ego_vel:',deformer.ego_vel)
+                    
+                    if args.verbose: 
+                        print('output filename:',newfilename)
+                        print('ego_vel:',deformer.ego_vel)
 
                     radar_df,_ = decode_pcd_file(filename,args.verbose)
                     
                     if radar_df.isna().any().any():
+                        # Empty radar point cloud check
                         print('NaN value in dataframe: skipped')
                         continue
 
-                    if args.gen_lvl_grad_img:
-                        noise_lvl_grad_gen_radar(args,filename,sensor,deformer,radar_df)
-                        continue
+                    if args.gen_lvl_grad_img or args.gen_csv or args.gen_paper_img:
+                        
+                        if args.gen_lvl_grad_img:
+                            noise_lvl_grad_gen_radar(args,filename,sensor,deformer,radar_df)
 
-                    if args.gen_csv:
-                        sample_name = filename.split('/')[-1].split('.')[0]
-                        mkdir_if_missing('./noisy_nuScenes/examples/RADAR/csv/')
-                        radar_df.to_csv('./noisy_nuScenes/examples/RADAR/csv/'+sample_name+'.csv')
-                        continue
+                        if args.gen_csv:
+                            sample_name = filename.split('/')[-1].split('.')[0]
+                            mkdir_if_missing('./noisy_nuScenes/examples/RADAR/csv/')
+                            radar_df.to_csv('./noisy_nuScenes/examples/RADAR/csv/'+sample_name+'.csv')
                     
-                    if args.gen_paper_img:
-                        if sensor=='RADAR_FRONT'
+                        if args.gen_paper_img and sensor=='RADAR_FRONT':
                             gen_paper_img_radar(args, filename, sensor, deformer, radar_df)
                         continue
 
+                    # Apply deformation
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
+                    # Save output
                     encode_to_pcd_file(deformed_radar_df,filename,newfilename,args.verbose)
 
                     # Read datapoints
@@ -134,27 +126,21 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     if args.save_radar_render:
                         save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat)
 
+
+                ##CAMERA DATA SYNTHESIZER##
                 elif 'CAM' in sensor:
-                    if args.gen_lvl_grad_img:
+                    if args.gen_lvl_grad_img or args.gen_paper_img:
                         # Loading image from filename        
                         img = cv2.imread(filename)
-                        noise_lvl_grad_gen_cam(deformer,img,filename)
-                        continue
-                    if args.gen_paper_img:
-                        # Loading image from filename        
-                        if sensor == 'CAM_FRONT'
-                            img = cv2.imread(filename)
+
+                        if args.gen_lvl_grad_img:
+                            noise_lvl_grad_gen_cam(deformer,img,filename)
+                        
+                        if args.gen_paper_img and  sensor == 'CAM_FRONT':
                             gen_paper_img_cam(args, filename, sensor, deformer, radar_df)
                         continue
 
                     for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:
-                        mkdir_if_missing(os.path.join(newfoldername,deform_type))
-                        newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
-                        if args.verbose: print('output filename:',newfilename)
-                        
-                        # if os.path.exists(newfilename):
-                        #     continue
-                        
                         if 'night' in scene['description'].lower():
                             # not considering data that has already low exposure and gaussian noise due to nighttime
                             continue
@@ -162,10 +148,15 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         # Loading image from filename        
                         img = cv2.imread(filename)
 
-                        
-                        
+                        # Output directory and file name
+                        mkdir_if_missing(os.path.join(newfoldername,deform_type))
+                        newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
+                        if args.verbose: print('output filename:',newfilename)
+
+                        # Apply deformation
                         deformed_img = deformer.deform_image(img,deform_type)
 
+                        # Save output
                         cv2.imwrite(newfilename, deformed_img)
                 
                 # next sensor
@@ -180,27 +171,6 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                 #GOTO next sample
                 next_token = nusc_sample['next']
                 nusc_sample = nusc.get('sample', next_token)
-
-# def parse_nusc(nusc):
-    
-#     for scene in nusc.scene:
-#         print('scene:\n',scene)
-#         nusc_sample = nusc.get('sample', scene['first_sample_token'])
-#         sample_data = nusc.get('sample_data', nusc_sample['data']['CAM_FRONT'])
-#         while True:
-#             print('nusc_sample:\n',nusc_sample)
-#             print('sample_data:\n',sample_data)
-#             input()
-
-
-#             if sample_data['next'] == "":
-#                 #GOTO next scene
-#                 print("no next data in scene %s"%(scene['name']))
-#                 break
-#             else:
-#                 #GOTO next sample
-#                 next_token = sample_data['next']
-#                 sample_data = nusc.get('sample_data', next_token)
 
 
 # auto-generation wrapper
@@ -951,18 +921,17 @@ def create_parser():
     parser = argparse.ArgumentParser()
     
     # nuScenes loading
-    parser.add_argument('--nusc_root', type=str, default='./nuScenes/', help='nuScenes data folder')
+    parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='nuScenes data folder')
     parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
-    parser.add_argument('--sensor', type=str, default=None, help='Sensor type (see sensor_list) to focus on')
-    parser.add_argument('--at_scene', type=str, default=None, help='Select specific scene to drop in')
-    parser.add_argument('--keyframes', '-kf', action='store_true', default=False, help='Only use keyframes (no sweeps, 2Hz instead of 12)')
+    parser.add_argument('--sensor', type=str, default=sensor_list, help='Sensor type (see sensor_list) to focus on')
 
     # Noise level
     parser.add_argument('--n_level_cam', '-ncam','-cnoise' , type=float, default=0.1, help='Noise level for cams')
     parser.add_argument('--n_level_radar', '-nrad','-rnoise' , type=float, default=0.1, help='Noise level for radars')
 
     # Output config
-    parser.add_argument('--out_root', type=str, default='./noisy_nuScenes', help='Noisy output folder')
+    parser.add_argument('--out_root', type=str, default='./data/noisy_nuScenes', help='Noisy output folder')
+    parser.add_argument('--no_overwrite', action='store_true', default=False, help='Do not overwrite existing output')
 
     # Display
     parser.add_argument('--disp_all_data', action='store_true', default=False, help='Display mosaic with camera and radar original info')
@@ -986,10 +955,6 @@ def create_parser():
 
 
 def check_args(args):
-    sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
-                    'LIDAR_TOP',
-                    'RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']  
-
     assert args.split in ['train','val','test','mini'], 'Wrong split type'
 
     if args.sensor:
@@ -999,7 +964,6 @@ def check_args(args):
 
     if not os.path.exists(args.out_root):
         mkdir_if_missing(args.out_root)
-                          
 
     print(args)
 
@@ -1009,12 +973,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     check_args(args)
 
-    if args.sensor:
-        sensors=[args.sensor]
-    else:
-        sensors=sensor_list
-
-    # Loading scenes
+    # Loading nuScenes
     nusc = load_nusc(args.split,args.nusc_root)
 
     # load arguments for visualizer functions
@@ -1023,10 +982,10 @@ if __name__ == '__main__':
     # Dataset parser for debug
     if args.debug: 
         deformer=deform_data(args)
-        parse_nusc_keyframes(nusc, sensors, args, deformer)
+        parse_nusc_keyframes(nusc, args.sensor, args, deformer)
 
     # generate noisy dataset
-    genDataset(nusc, sensors, args)
+    genDataset(nusc, args.sensor, args)
 
     exit('end of script')
 
@@ -1034,23 +993,20 @@ if __name__ == '__main__':
 
 '''
 Running command:
-python dataset_handler.py -kf --debug --sensor <SENSOR> -v
+python dataset_handler.py --debug --sensor <SENSOR> -v
 
 
-some reading :
-
+Some reading :
 https://github.com/nutonomy/nuscenes-devkit/blob/05d05b3c994fb3c17b6643016d9f622a001c7275/python-sdk/nuscenes/utils/data_classes.py#L315
 https://forum.nuscenes.org/t/detail-about-radar-data/173/5
 https://forum.nuscenes.org/t/radar-vx-vy-and-vx-comp-vy-comp/283/4
 https://conti-engineering.com/wp-content/uploads/2020/02/ARS-408-21_EN_HS-1.pdf
 
-# Promising paper for impact of rcs fluctuation on accuracy :
+# Some papers on the impact of SNR on accuracy :
 https://ieeexplore.ieee.org/abstract/document/55565
 https://asp-eurasipjournals.springeropen.com/articles/10.1155/2010/610920#:~:text=The%20transmitted%20power%20has%20an,target%20%5B7%2C%208%5D.
 
+# Some paper on adverse image distortion:
 https://github.com/Gil-Mor/iFish
 https://github.com/noahzn/FoHIS
-
-test
-
 '''

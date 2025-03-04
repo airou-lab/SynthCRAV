@@ -895,3 +895,6 @@ def gen_paper_img_radar(args,filename,sensor,deformer,radar_df):
         # disp_img_cv2(superfish_img, title='superfish-distort', block=True)
 
 
+if __name__ == '__main__':
+    pass
+

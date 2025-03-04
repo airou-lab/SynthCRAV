@@ -1,12 +1,12 @@
 __pycache__
-nuScenes
+# Specific file types
 *.pcd
 *.xlsx
 *.csv
 test*
 
-noisy_nuScenes/examples/CAM
-noisy_nuScenes/examples/RADAR/csv
-
-
-noisy_nuScenes/samples
+# data
+data/nuScenes
+data/noisy_nuScenes/examples/CAM
+data/noisy_nuScenes/examples/RADAR/csv
+data/noisy_nuScenes/samples
