@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import cv2
 import random
+import pickle
 
 import torch
 from torch import nn
@@ -16,6 +17,9 @@ from torch.utils.data import Dataset, DataLoader
 
 from sklearn.model_selection import train_test_split
 from utils.utils import *
+from models_visualizer import plot_confusion_mat
+
+
 # from torchsummary import summary
 
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
@@ -86,71 +90,101 @@ def convert_radardf_to_tensor(radar_df, types_str):
     return combined_tensor
 
 
-
 # DATALOADER
-def create_df(data_path):
+def get_df_split(nusc, data_split):
     '''
-    For Radars the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<name.pcd>
+    For Cameras the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<noise_type>/<name.jpg>
     '''
-    labels_radar = []
-    data_paths_radar = []
+
+    # output
+    labels = []
+    data_paths = []
     sensor_radar = []
+
+    # accumulate in df:
+    for scene in nusc.scene:
+        if scene['name'] not in data_split:
+            continue
+
+        nusc_sample = nusc.get('sample', scene['first_sample_token'])
+
+        while True:
+            for sensor in radar_list:
+                # Load nusc info
+                sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
+                filename = sample_data['filename']
+                # filename = os.path.join(args.nusc_root,)
+                token = filename.split('/')[-1]
+
+                getOG=False
+
+                for noise_level in range (10,110,10):
+                    synthpath = os.path.join('./noisy_nuScenes','samples',sensor,str(noise_level),token)
+                    if os.path.exists(synthpath):
+                        labels.append(int(noise_level/10))
+                        data_paths.append(synthpath)
+                        sensor_radar.append(sensor)
+                        getOG=True # signal flag that data is good to take from OG as well
+
+
+                if getOG:
+                    data_paths.append(os.path.join('nuScenes',filename))
+                    labels.append(0)
+                    sensor_radar.append(sensor)
+
+
+            if nusc_sample['next'] == "":
+                #GOTO next scene
+                break
+            else:
+                #GOTO next sample
+                next_token = nusc_sample['next']
+                nusc_sample = nusc.get('sample', next_token)
     
-    print('Creating dataset')
+    df = pd.DataFrame({'data':data_paths,'labels':labels,'sensor':sensor_radar})
 
-    for sensor in os.listdir(data_path):
-        for noise_level in os.listdir(os.path.join(data_path,sensor)):
-            if 'RADAR' in sensor:                
-                for item in os.listdir(os.path.join(data_path,sensor,noise_level)):
-                    data_paths_radar.append(os.path.join(data_path,sensor,noise_level,item))
-                    labels_radar.append(int(noise_level[:-1])) # encoding noise value to an integer (1,2,3,4,5,6,7,8,9,10])
-                    sensor_radar.append(sensor)
+    return df
 
-    # original dataset --> no added noise
-    for sensor in os.listdir(os.path.join('nuScenes','samples')):
-        for item in os.listdir(os.path.join('nuScenes','samples',sensor)):
-            if 'RADAR' in sensor:
-                if os.path.exists(os.path.join(data_path,sensor,'10',item)):
-                    # Making sure we are gathering only non-empty data points. 
-                    # The dataset handler skipped those so they arent in noisy folders.
-                    data_paths_radar.append(os.path.join('nuScenes','samples',sensor,item))
-                    labels_radar.append(0)
-                    sensor_radar.append(sensor)
+def create_df(data_path):
+    nusc = load_nusc('mini','./nuScenes')
+    
+    # init val
+    train_split = []
+    test_split = []
+    val_split = []
 
-    df_radar = pd.DataFrame({'data':data_paths_radar,'labels':labels_radar,'sensor':sensor_radar})
+    n_train_scenes = 4
+    n_test_scenes = 2
+    n_val_scenes = 2
 
-    return df_radar
+    # accumulate scene names
+    for scene in nusc.scene:
+        scene_names = [scene['name'] for scene in nusc.scene]   # accumulating scene names, using night scenes for radar
 
-def get_df_split(df):
-    # split is 80/10/10
-    r_train = 0.8
-    r_test = 0.1
-    r_val = 0.1
+    for i in range(n_train_scenes):
+        idx = random.randrange(len(scene_names))
+        train_split.append(scene_names.pop(idx))
 
-    print('Creating splits')
+    for i in range(n_test_scenes):
+        idx = random.randrange(len(scene_names))
+        test_split.append(scene_names.pop(idx))
 
-    df_train = pd.DataFrame(columns = df.columns)
-    df_test = pd.DataFrame(columns = df.columns)
-    df_val = pd.DataFrame(columns = df.columns)
-        
-    for sensor in radar_list:
-        subdf = df.loc[df['sensor']==sensor]
+    for i in range(n_val_scenes):
+        idx = random.randrange(len(scene_names))
+        val_split.append(scene_names.pop(idx))
 
-        df_train_temp, df_temp = train_test_split(subdf, test_size=r_train, random_state=None)
-        df_train = pd.concat([df_train,df_train_temp], ignore_index=True)
 
-        df_test_temp, df_val_temp =  train_test_split(df_temp, test_size=0.5, random_state=None)
-        df_test =  pd.concat([df_test,df_test_temp], ignore_index=True)
-        df_val = pd.concat([df_val,df_val_temp], ignore_index=True)
+    df_train = get_df_split(nusc, train_split)
+    df_val   = get_df_split(nusc, val_split)
+    df_test  = get_df_split(nusc, test_split)
 
     print('df_train:',df_train)
-    print('df_test:',df_test)
     print('df_val:',df_val)
+    print('df_test:',df_test)
 
-    return df_train, df_test, df_val
+    return df_train, df_val, df_test  
 
 
-# TODO: nan data case check
 def load_pcd(row):
     '''
     takes a df in input (batch)
@@ -167,14 +201,13 @@ def load_pcd(row):
 def batch_generator(df):
     indices = list(df.index)
     random.shuffle(indices)  # Shuffle data at each epoch
-    
     batch = []
     for idx in indices:
         row = df.loc[idx]
 
         data_tensor, label_tensor, radar_df = load_pcd(row)
         
-        if len(radar_df):
+        if len(radar_df) and not radar_df.isna().sum().any(): # length check and nan check
             yield [data_tensor, label_tensor, radar_df]  # Yield batch when full
 
 # MODELS
@@ -182,16 +215,24 @@ class simple_RadarNDet(torch.nn.Module):
     def __init__(self,n_channels, n_labels,dropout_prob=0):
         super(simple_RadarNDet, self).__init__()
 
-        self.input = nn.Sequential(nn.Conv1d(in_channels=n_channels, out_channels=64, kernel_size=3, padding=1),
+        self.input = nn.Sequential(nn.Conv1d(in_channels=n_channels, out_channels=32, kernel_size=3, padding=1),
                                     nn.ReLU(),
                                     nn.Dropout1d(p=dropout_prob))
 
-        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
+        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
+                                    nn.ReLU(),
+                                    nn.Dropout1d(p=dropout_prob))
+
+        self.conv2 = nn.Sequential(nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
+                                    nn.ReLU(),
+                                    nn.Dropout1d(p=dropout_prob))
+
+        self.conv3 = nn.Sequential(nn.Conv1d(in_channels=128, out_channels=256, kernel_size=3, padding=1),
                                     nn.ReLU(),
                                     nn.Dropout1d(p=dropout_prob))
 
         
-        self.fc1 = nn.Sequential(nn.Linear(128,64),
+        self.fc1 = nn.Sequential(nn.Linear(256,64),
                                nn.ReLU(),
                                nn.Dropout(p=dropout_prob))
 
@@ -207,6 +248,8 @@ class simple_RadarNDet(torch.nn.Module):
         x = self.input(x)
 
         x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.conv3(x)
 
         x = torch.mean(x, dim=2)  # global average pooling
 
@@ -308,6 +351,11 @@ def train_model (model,n_epochs,df_train,df_val,optimizer,loss_fct,scheduler):
         history['val_loss'].append(val_loss)
         history['val_accuracy'].append(val_accuracy)
 
+        # Save model and results
+        torch.save(model.state_dict(), './ckpt/radar_model.pth')
+        with open("radar_model_hist.pkl", "wb") as f:
+            pickle.dump(history,f)
+
     print('\nFinal loss: \t train: %0.3f \t val: %0.3f'%(epoch_loss,val_loss))
     print('Final accuracy: \t train: %0.2f \t val: %0.2f'%(epoch_accuracy,val_accuracy))
 
@@ -320,11 +368,13 @@ def test_model(model,df_test,loss_fct,history):
     test_loss=0
     correct_predictions_test=0
     total_predictions_test=0
+    all_preds=[]
+    all_labels=[]
 
     with torch.no_grad():
         for batch_idx, test_batch in enumerate(batch_generator(df_test)):
             print(100*' ',end='\r')
-            print('test_batch:',batch_idx, '/', round(len(df_val)),end='\r')
+            print('test_batch:',batch_idx, '/', round(len(df_test)),end='\r')
             # Load data
             X_test, labels_test,_ = test_batch
 
@@ -335,11 +385,20 @@ def test_model(model,df_test,loss_fct,history):
             _, predicted = torch.max(test_pred, 1)
             correct_predictions_test += (predicted == labels_test).sum().item()
             total_predictions_test += labels_test.size(0)
+
+            all_preds.extend(predicted.cpu().numpy())  # Convert to numpy and store
+            all_labels.extend(labels_test.cpu().numpy())  # Convert to numpy and store
         
         test_accuracy = 100 * (correct_predictions_test/total_predictions_test)
 
     print('Test loss: %0.3f \t | \taccuracy:%0.2f'%(test_loss,test_accuracy))
 
+
+    # Convert lists to numpy arrays
+    all_preds = np.array(all_preds)
+    all_labels = np.array(all_labels)
+
+    plot_confusion_mat(all_preds, all_labels,'radar_model_mat.png')
 
     # output values
     history['test_loss'].append(test_loss)
@@ -350,10 +409,9 @@ def test_model(model,df_test,loss_fct,history):
 
 
 if __name__ == '__main__':
-    df = create_df('./noisy_nuScenes/samples')
-    
-    df_train, df_test, df_val = get_df_split(df)
 
+    df_train, df_val, df_test = create_df('./noisy_nuScenes/samples')
+    
     # df_train = df_train.head(8000)
     # df_test = df_train.head(1000)
     # df_val = df_train.head(1000)
@@ -373,8 +431,8 @@ if __name__ == '__main__':
     print('n_labels:',n_labels)
 
     # param
-    n_epochs=10
-    lr = 1e-5
+    n_epochs=200
+    lr = 1e-4
     
     # init
     model = simple_RadarNDet(n_cols,n_labels,dropout_prob=0).to(device)
@@ -386,7 +444,8 @@ if __name__ == '__main__':
 
     #train
     model, history = train_model(model,n_epochs,df_train,df_val,optimizer,loss_fct,scheduler)    
-    torch.save(model.state_dict(), './ckpt/radar_model.pth')
+
+    # model.load_state_dict(torch.load('./ckpt/radar_model.pth'))
 
     #test
     test_model(model,df_test,loss_fct,history)
