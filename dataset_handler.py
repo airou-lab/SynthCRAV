@@ -1005,7 +1005,7 @@ if __name__ == '__main__':
     # Dataset parser for debug
     if args.debug: 
         deformer=deform_data(args)
-        parse_nusc_keyframes(nusc, sensors, args)
+        parse_nusc_keyframes(nusc, sensors, args, deformer)
 
     # generate noisy dataset
     genDataset(nusc, sensors, args)
