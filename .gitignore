@@ -3,6 +3,7 @@ nuScenes
 *.pcd
 *.xlsx
 *.csv
+test*
 
 noisy_nuScenes/examples/CAM
 noisy_nuScenes/examples/RADAR/csv
