@@ -1,5 +1,6 @@
-# MatData
-Versioning for custom noisy nuScenes dataset handling functions
+# SynthCRAV - Realistic Noise Sythetiser for Camera-Radar Autonomous Vehicle datasets
+This is the official repository for the paper *Synthetizing and Identifying Noise Levels in Autonomous Vehicle Canera-Radar Datasets* 
+
 
 
 ## Git
