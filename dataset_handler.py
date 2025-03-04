@@ -71,8 +71,8 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     newfilename = os.path.join(newfoldername,filename.split('/')[-1])
                     if args.verbose:
                         print('output filename:',newfilename)
-                    if os.path.exists(newfilename):
-                            continue
+                    # if not args.debug and os.path.exists(newfilename):
+                    #     continue
 
                     # get current ego vel in sensor frame
                     deformer.ego_vel= get_ego_vel(nusc,nusc_sample,sensor)[:2] # only (vx,vy)
@@ -94,6 +94,11 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         radar_df.to_csv('./noisy_nuScenes/examples/RADAR/csv/'+sample_name+'.csv')
                         continue
                     
+                    if args.gen_paper_img:
+                        if sensor=='RADAR_FRONT'
+                            gen_paper_img_radar(args, filename, sensor, deformer, radar_df)
+                        continue
+
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
                     encode_to_pcd_file(deformed_radar_df,filename,newfilename,args.verbose)
@@ -130,12 +135,26 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat)
 
                 elif 'CAM' in sensor:
+                    if args.gen_lvl_grad_img:
+                        # Loading image from filename        
+                        img = cv2.imread(filename)
+                        noise_lvl_grad_gen_cam(deformer,img,filename)
+                        continue
+                    if args.gen_paper_img:
+                        # Loading image from filename        
+                        if sensor == 'CAM_FRONT'
+                            img = cv2.imread(filename)
+                            gen_paper_img_cam(args, filename, sensor, deformer, radar_df)
+                        continue
+
                     for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:
                         mkdir_if_missing(os.path.join(newfoldername,deform_type))
                         newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
                         if args.verbose: print('output filename:',newfilename)
-                        if os.path.exists(newfilename):
-                            continue
+                        
+                        # if os.path.exists(newfilename):
+                        #     continue
+                        
                         if 'night' in scene['description'].lower():
                             # not considering data that has already low exposure and gaussian noise due to nighttime
                             continue
@@ -143,9 +162,7 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         # Loading image from filename        
                         img = cv2.imread(filename)
 
-                        if args.gen_lvl_grad_img:
-                            noise_lvl_grad_gen_cam(deformer,img,filename)
-                            continue
+                        
                         
                         deformed_img = deformer.deform_image(img,deform_type)
 
@@ -153,7 +170,7 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                 
                 # next sensor
                 if args.debug:
-                    input('PRESS ENTER')
+                    input('PRESS ANY KEY FOR NEXT SENSOR')
 
             if nusc_sample['next'] == "":
                 #GOTO next scene
@@ -954,6 +971,7 @@ def create_parser():
     parser.add_argument('--disp_img', action='store_true', default=False, help='Display original Camera image and new one')
     parser.add_argument('--disp_all_img', action='store_true', default=False, help='Display mosaic of camera views')
     parser.add_argument('--gen_lvl_grad_img', action='store_true', default=False, help='generate output files for multiple noise levels')
+    parser.add_argument('--gen_paper_img', action='store_true', default=False, help='generate output files for paper (4 outputs)')
     parser.add_argument('--gen_csv', action='store_true', default=False, help='generate csv file out of df (debug)')
     
     # Verbosity level

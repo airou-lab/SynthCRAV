@@ -689,6 +689,177 @@ def noise_lvl_grad_gen_cam(deformer,og_img,filename):
     input('PRESS ANY KEY')
 
 
+def gen_paper_img_cam(deformer,og_img,filename):
+    token = filename.split('/')[-1].split('.')[0]
+
+    for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:     
+        print('Deforming image with', deform_type,'deformer')
+
+        # init image list and legend list
+        img_list =[og_img]
+        legends = ['original']
+
+        store_root=os.path.join('noisy_nuScenes','examples','paper_img')
+        mkdir_if_missing(store_root)
+
+        for i in range(1,11,1):
+            if i not in[0,3,6,10]:
+                continue
+
+            deformer.noise_level_cam = i/10                                               # Convert i to noise level
+            print('generating noise level at: %d%%'%(int(deformer.noise_level_cam*100)))
+
+            # Apply and store transform at level i/100
+            noisy_img = deformer.deform_image(og_img,deform_type)
+            img_list.append(noisy_img)
+            
+            # Store level legend
+            legends.append(str(deformer.noise_level_cam * 100)+'% noise')
+
+        store_path=os.path.join(store_root, deform_type+'-'+token+'.png')
+        disp_img_plt(imgs=img_list,rows=2,cols=2,title='',legends=legends,show=False,store_path=store_path)
+    
+    print('Finished plotting all noise levels')
+    input('PRESS ANY KEY')
+
+def gen_paper_img_radar(args,filename,sensor,deformer,radar_df):
+    '''
+    Generates paper images
+    '''
+    token = filename.split('/')[-1].split('.')[0]
+
+    output_folder = os.path.join(args.out_root,'examples','paper_img')
+    print('generating gradient of noise levels at',output_folder)
+    mkdir_if_missing(output_folder)
+
+    vis = o3d.visualization.Visualizer()
+
+    # extract original point cloud
+    dat = o3d.io.read_point_cloud(filename)
+
+    # Saving original pcd in matplotlib with auto angling for 3d effect
+    pts_OG = copy.deepcopy(np.asarray(dat.points))
+    pts_list=[pts_OG]
+        
+    # temp save of o3d visualization
+    image_path = os.path.join(output_folder,'o3d_0.png')
+    dat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+    vis.create_window() 
+    vis.add_geometry(dat)
+    vis.poll_events()
+    vis.update_renderer()
+    vis.capture_screen_image(image_path)
+
+    for noise_lvl in range(1,11,1):
+        df_og = copy.deepcopy(radar_df)
+        deformer.noise_level_radar = (noise_lvl)/10
+        deformer.update_val()
+        print('noise level at %f %%'%(deformer.noise_level_radar * 100))
+        print('corresonding dB SNR decrease:',round(deformer.SNR_decrease_dB,3),'dB')
+        newfilename = os.path.join(output_folder,token+'_'+str(noise_lvl)+'.pcd')
+        
+        deformed_radar_df = deformer.deform_radar(df_og)
+        
+        encode_to_pcd_file(deformed_radar_df,filename,newfilename)
+
+        # Read datapoints
+        newdat = o3d.io.read_point_cloud(newfilename)
+        os.remove(newfilename)
+
+        # Converting to numpy format
+        pts_new = copy.deepcopy(np.asarray(newdat.points))
+        pts_list.append(pts_new)
+
+        # Temp save of o3d visualization
+        image_path = os.path.join(output_folder,'o3d_'+str(noise_lvl)+'.png')
+        newdat.rotate(rot_z(90), center=(0, 0, 0)) # correct rotation to carthesian coord
+        vis.clear_geometries()
+        vis.add_geometry(newdat)
+        vis.poll_events()
+        vis.update_renderer()
+        vis.capture_screen_image(image_path)
+
+    vis.destroy_window()
+
+    print('gathering o3d plots')
+    # Gather o3d images in a list
+    imlist=[]
+    
+    for i in range(11):
+        name = 'o3d_'+str(i)+'.png'
+        imlist.append(cv2.imread(os.path.join(output_folder,name)))
+
+    print('o3d multiplot')
+    # Open3D reconstruction and saving in a subplot:
+    fig, ax = plt.subplots(2,2,figsize=(16, 9))
+    ax = ax.flatten()
+
+    k=0
+    for i,img in enumerate(imlist):
+        if i not in[0,3,6,10]:
+            continue
+
+        # correct color scale as images are loaded by openCV
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        ax[k].imshow(img)
+        ax[k].set_title('%0.1f%% noise'%(i*10))
+
+        # ax[i].axis('off')
+        ax[k].set_xticks([])
+        ax[k].set_yticks([])
+        ax[k].set_xticklabels([])
+        ax[k].set_yticklabels([])
+
+        for spine in ax[k].spines.values():
+            spine.set_edgecolor('black')
+        k+=1
+            
+    plt.tight_layout(pad=1)
+    
+    store_path = os.path.join(output_folder,'o3d_'+token+'.png')
+
+    plt.savefig(store_path)
+    plt.close()
+
+    print('matplotlib multiplot')
+    # matplotlib 3D reconstruction and saving in 3d plots:
+    # Create the figure and axes object
+    fig = plt.figure(figsize=(16, 9))
+
+    k=0
+    for i,points in enumerate(pts_list):
+        if i not in[0,3,6,10]:
+            continue
+        k+=1
+        ax = fig.add_subplot(2,2,k, projection='3d')
+
+        x = points[:,0]
+        y = points[:,1]
+        z = points[:,2]
+
+        # Plot the 3D points
+        ax.scatter(x, y, z, c='blue', marker='o')
+
+        # Set labels for the axes
+        ax.set_xlabel('X-axis')
+        ax.set_ylabel('Y-axis')
+        ax.set_zlabel('Z-axis')
+
+        # set elevation angle view
+        ax.view_init(elev=40, azim=180)
+
+        ax.set_title('%0.1f%% noise'%(i*10))
+    
+    store_path = os.path.join(output_folder,'plt_'+token+'.png')
+    
+    plt.savefig(store_path) 
+    plt.close()
+
+    
+    print('Finished plotting paper img')
+    input('PRESS ANY KEY')
+
 #----------------display each type at current noise level in one plot-----------------
 
         # disp_img_plt([img], title='original', block=True)

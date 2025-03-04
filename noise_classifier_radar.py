@@ -29,7 +29,7 @@ cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_L
 
 radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
 
-if torch.cuda.is_available:
+if torch.cuda.is_available():
     device = torch.device('cuda')
     ndevice = torch.cuda.current_device()
     print('found CUDA device:', torch.cuda.get_device_name(ndevice))
