@@ -1,14 +1,11 @@
-# #-----------------------------------------------
-# # Author : Mathis Morales                       
-# # Email  : mathis-morales@outlook.fr             
-# # git    : https://github.com/MathisMM            
-# #-----------------------------------------------
+#-----------------------------------------------
+# Author : Mathis Morales                       
+# Email  : mathis-morales@outlook.fr             
+# git    : https://github.com/MathisMM            
+#-----------------------------------------------
 
-import os 
 import numpy as np
-import pandas as pd
 import pickle
-import cv2
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
@@ -103,9 +100,10 @@ def plot_confusion_mat(y_true, y_pred, name):
 
 # main
 if __name__ == '__main__':
-    plot_trainval_loss("radar_model_hist.pkl")
-    plot_trainval_acc("radar_model_hist.pkl")
-    get_test_acc("radar_model_hist.pkl")
+    path = './ckpt/radar_model_hist.pkl'
+    plot_trainval_loss(path)
+    plot_trainval_acc(path)
+    get_test_acc(path)
 
 
 

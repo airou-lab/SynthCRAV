@@ -51,9 +51,9 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                 mkdir_if_missing(newfoldername)
 
                 if args.verbose:
-                    print('Output folder name:',newfoldername)
                     print('nusc_sample:\n',nusc_sample)
                     print('sample_data:\n',sample_data)
+                    print('Output folder name:',newfoldername)
 
 
                 ##RADAR DATA SYNTHESIZER##
@@ -923,7 +923,7 @@ def create_parser():
     # nuScenes loading
     parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='nuScenes data folder')
     parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
-    parser.add_argument('--sensor', type=str, default=sensor_list, help='Sensor type (see sensor_list) to focus on')
+    parser.add_argument('--sensor', type=str, nargs='+', default=sensor_list, help='Sensor type (see sensor_list) to focus on')
 
     # Noise level
     parser.add_argument('--n_level_cam', '-ncam','-cnoise' , type=float, default=0.1, help='Noise level for cams')
@@ -958,7 +958,7 @@ def check_args(args):
     assert args.split in ['train','val','test','mini'], 'Wrong split type'
 
     if args.sensor:
-        assert args.sensor in sensor_list, 'Unknown sensor selected'    
+        assert all(sensor in sensor_list for sensor in args.sensor), 'Unknown sensor selected: %s'%(args.sensor)  
    
     assert os.path.exists(args.nusc_root), 'Data folder at %s not found'%(args.nusc_root)
 

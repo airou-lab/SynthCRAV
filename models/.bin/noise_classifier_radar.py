@@ -16,8 +16,8 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from sklearn.model_selection import train_test_split
-from utils.utils import *
-from models_visualizer import plot_confusion_mat
+from ..utils.utils import *
+from utils.models_visualizer import plot_confusion_mat
 
 
 # from torchsummary import summary
@@ -93,7 +93,7 @@ def convert_radardf_to_tensor(radar_df, types_str):
 # DATALOADER
 def get_df_split(nusc, data_split):
     '''
-    For Cameras the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<noise_type>/<name.jpg>
+    For Radars the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<name.pcd>
     '''
 
     # output

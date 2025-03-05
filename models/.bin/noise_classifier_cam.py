@@ -16,8 +16,8 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
 from sklearn.model_selection import train_test_split
-from utils.utils import *
-from models_visualizer import plot_confusion_mat
+from ..utils.utils import *
+from utils.models_visualizer import plot_confusion_mat
 
 
 # from torchsummary import summary
@@ -59,7 +59,6 @@ def get_df_split(nusc, data_split):
                 # Load nusc info
                 sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
                 filename = sample_data['filename']
-                # filename = os.path.join(args.nusc_root,)
                 token = filename.split('/')[-1]
 
                 getOG=False
