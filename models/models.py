@@ -7,9 +7,9 @@ import numpy as np
 import torch
 from torch import nn
 
-from models_utils.config import device, ndevice
+from models.models_utils.config import device, ndevice
 
-# MODEL INSTANCES
+## MODEL INSTANCES
 
 # Radar noise classifier
 class RadarNDet(torch.nn.Module):

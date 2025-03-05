@@ -13,9 +13,9 @@ import torch
 from torch import nn
 # from torchsummary import summary
 
-from models_utils.utils import *
-from models_utils.models import RadarNDet, CameraNDet
-from models_utils.config import device, ndevice
+from models.models_utils.utils import *
+from models.models_utils.config import device, ndevice
+from models.models import RadarNDet, CameraNDet
 
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
                 'RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
@@ -31,8 +31,10 @@ def create_parser():
     parser = argparse.ArgumentParser()
 
     # input / output
-    parser.add_argument('--data_root', type=str, default='../data/noisy_nuScenes/', help='Synth data folder')
-    parser.add_argument('--output_path', type=str, default='../ckpt/', help='Synth data folder')
+    parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='Original nuScenes data folder')
+    parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
+    parser.add_argument('--data_root', type=str, default='./data/noisy_nuScenes/', help='Synth data folder')
+    parser.add_argument('--output_path', type=str, default='./ckpt/', help='Synth data folder')
 
     # Network selection
     parser.add_argument('--sensor_type', type=str, default='camera', help='Allows to train separately or together (camera, radar, both)')
@@ -41,7 +43,7 @@ def create_parser():
 
     # misc
     parser.add_argument('--img_shape', type=int, nargs='+', default=[900,1600,3], help='nuScenes image size')
-    parser.add_argument('--n_cols', type=int, default=18, help='NNumber of columns in a radar point cloud')
+    parser.add_argument('--n_cols', type=int, default=18, help='Number of columns in a radar point cloud')
     parser.add_argument('--scheduler', type=str, default=None, help='Scheduler setup. Unsupported for now')  # TODOs
 
     # hyperparameters
@@ -139,10 +141,12 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-20)
 
     #train
-    model, history = train(model,args,df_train,df_val,optimizer,loss_fct)
+    if args.train:
+        model, history = train(model,args,df_train,df_val,optimizer,loss_fct)
 
     #test
-    history = test(model,args,df_test,loss_fct,history)
+    if args.test:
+        history = test(model,args,df_test,loss_fct,history)
 
 
     if args.save_hist:
@@ -161,6 +165,9 @@ Run with :
 python noise_classifier.py --sensor_type camera --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --batch_size 16 \
                         --conv_k 3 --dropout2d 0 \
                         --train --save_model --save_hist
+
+python noise_classifier.py --sensor_type radar --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --dropout1d 0\
+                                             --train --save_model --save_hist
 
 
 
