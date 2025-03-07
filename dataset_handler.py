@@ -28,7 +28,6 @@ cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_L
 
 radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
 
-
 # Dataset Parser (using kf because the other data aren't annotated and are interpolated)
 def parse_nusc_keyframes(nusc, sensors, args, deformer):
     for scene in nusc.scene:
@@ -152,10 +151,6 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         continue
 
                     for deform_type in ['Blur','High_exposure','Low_exposure','Gaussian_noise']:
-                        if 'night' in scene['description'].lower():
-                            # not considering data that has already low exposure and gaussian noise due to nighttime
-                            continue
-
                         # Loading image from filename        
                         img = cv2.imread(filename)
 
@@ -163,6 +158,12 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                         mkdir_if_missing(os.path.join(newfoldername,deform_type))
                         newfilename = os.path.join(newfoldername,deform_type,filename.split('/')[-1])
                         if args.verbose: print('output filename:',newfilename)
+
+
+                        if 'night' in scene['description'].lower() and deform_type in ['High_exposure','Low_exposure']:
+                            cv2.imwrite(newfilename, img)
+                            # for data that has already low exposure and gaussian noise due to nighttime, only apply blur or noise, not other deform
+                            continue                        
 
                         # Apply deformation
                         deformed_img = deformer.deform_image(img,deform_type)
@@ -263,13 +264,21 @@ class deform_data():
         self.args = args
         self.verbose = args.verbose
 
-        # Radar noise level is defined as the 0.1 x the dB decrease between SNR' and SNR :
+        # # Radar noise level is defined as 0.2 x the dB decrease between SNR' and SNR :
+        # # n = 0 : 0dB decrease
+        # # n = 0.1 : -1 dB decrease
+        # # n = 1 : -10 dB decrease
+        # self.noise_level_radar = args.n_level_radar
+        # self.SNR_decrease_dB = 10*log(10**(-self.noise_level_radar),10)
+        # self.SNR_ratio_linear = 10**(-self.noise_level_radar)
+
+        # Radar noise level is defined as 0.2 x the dB decrease between SNR' and SNR :
         # n = 0 : 0dB decrease
-        # n = 0.1 : -1 dB decrease
-        # n = 1 : -10 dB decrease
+        # n = 0.1 : -2 dB decrease
+        # n = 1 : -20 dB decrease
         self.noise_level_radar = args.n_level_radar
-        self.SNR_decrease_dB = 10*log(10**(-self.noise_level_radar),10)
-        self.SNR_ratio_linear = 10**(-self.noise_level_radar)
+        self.SNR_decrease_dB = 10*log(10**(-2*self.noise_level_radar),10)
+        self.SNR_ratio_linear = 10**(-2*self.noise_level_radar)
 
         self.noise_level_cam = args.n_level_cam
 
@@ -277,8 +286,11 @@ class deform_data():
     
     def update_val(self):
         # updates values based on noise_level if it is tuned by other functions
-        self.SNR_decrease_dB = 10*log(10**(-self.noise_level_radar),10)
-        self.SNR_ratio_linear = 10**(-self.noise_level_radar)
+        # self.SNR_decrease_dB = 10*log(10**(-self.noise_level_radar),10)
+        # self.SNR_ratio_linear = 10**(-self.noise_level_radar)
+
+        self.SNR_decrease_dB = 10*log(10**(-2*self.noise_level_radar),10)
+        self.SNR_ratio_linear = 10**(-2*self.noise_level_radar)
 
     #---------------------------------------------------------Radar functions---------------------------------------------------------
     def create_ghost_point(self, num_ghosts, radar_df, ghost_df):
@@ -610,6 +622,45 @@ class deform_data():
             # Applying noise to original values
             r_noisy = r + dist_noise
             theta_noisy = degrees(theta) + ang_noise
+
+            # Security check
+            while (r_noisy<self.radar_sensor_bounds['dist']['range']['min_range']):
+                print('range value OOB @ %fm range'%(r_noisy))
+                input()
+                dist_noise = np.random.normal(0,dist_sigma)
+                r_noisy = r + dist_noise
+
+            # if r< self.radar_sensor_bounds['dist']['range']['short_range']+10:
+            #     # short range point
+            #     while (abs(theta_noisy)>self.radar_sensor_bounds['dist']['ang']['short_range']+10):
+            #         print('angle value OOB at %f deg for a %fm range (short range)'%(theta_noisy,r))
+            #         print('max angle value @ this range is:',self.radar_sensor_bounds['dist']['ang']['short_range']+10)
+            #         print('original point was: %fm %f deg'%(r,degrees(theta)))
+            #         input()
+            #         ang_noise = np.random.normal(0,ang_sigma)  # in degrees
+            #         theta_noisy = degrees(theta) + ang_noise
+            
+            # elif r< self.radar_sensor_bounds['dist']['range']['mid_range']+20:
+            #     # mid range point
+            #     while (abs(theta_noisy)>self.radar_sensor_bounds['dist']['ang']['mid_range']+10):
+            #         print('angle value OOB at %f deg for a %fm range (mid range)'%(theta_noisy,r))
+            #         print('max angle value @ this range is:',self.radar_sensor_bounds['dist']['ang']['mid_range']+10)                    
+            #         print('original point was: %fm %f deg'%(r,degrees(theta)))
+            #         input()
+            #         ang_noise = np.random.normal(0,ang_sigma)  # in degrees
+            #         theta_noisy = degrees(theta) + ang_noise
+            
+            # else :
+            #     # far range point
+            #     while (theta_noisy>self.radar_sensor_bounds['dist']['ang']['far_range']+10):
+            #         print('angle value OOB at %f deg for a %fm range (long range)'%(theta_noisy,r))
+            #         print('max angle value @ this range is:',self.radar_sensor_bounds['dist']['ang']['far_range']+10)
+            #         print('original point was: %fm %f deg'%(r,degrees(theta)))
+            #         input()
+            #         ang_noise = np.random.normal(0,ang_sigma)  # in degrees
+            #         theta_noisy = degrees(theta) + ang_noise
+
+
             
             # converting back to cartesian coordinates
             x_noisy, y_noisy = polar_to_cart(r_noisy,theta_noisy)
@@ -644,6 +695,7 @@ class deform_data():
                 print('theta_noisy:',theta_noisy)
                 print('x_noisy:',x_noisy)
                 print('y_noisy:',y_noisy)
+                input()
 
             # Uncorrelated noise generation on velocity (radar velocity measurement in independant from position)
             
