@@ -7,10 +7,13 @@
 import os 
 import pickle
 import argparse
+import wandb
 from copy import copy
 
 import torch
 from torch import nn
+import torchviz
+
 # from torchsummary import summary
 
 from models.models_utils.utils import *
@@ -39,7 +42,7 @@ def create_parser():
     # Network selection
     parser.add_argument('--sensor_type', type=str, default='camera', help='Allows to train separately or together (camera, radar, both)')
     parser.add_argument('--network_name', type=str, default='', help='Internal name of network. Do not atrribute a value.')
-    parser.add_argument('--data_split_n', type=int, nargs='+', default=[2,1,1], help='sets amount of scene per splits (train/val/test)')
+    parser.add_argument('--data_split_n', type=int, nargs='+', default=[4,1,1], help='sets amount of scene per splits (train/val/test)')
 
     # misc
     parser.add_argument('--img_shape', type=int, nargs='+', default=[900,1600,3], help='nuScenes image size')
@@ -74,6 +77,18 @@ def check_args(args):
     
     assert len(args.data_split_n) == 3, 'Error, data_split_n is a list of 3 elements, got %d'%(len(args.data_split_n))
     assert len(args.img_shape) == 3, 'Error, img_shape is a list of 3 elements (WxHxD), got %d'%(len(args.img_shape))
+
+    assert args.data_split_n[0] > 0,'train split cannot be empty'
+    assert args.data_split_n[1] > 0,'val split cannot be empty'
+    assert args.data_split_n[2] > 0,'test split cannot be empty'
+
+    assert args.data_split_n[0] + args.data_split_n[1] <= 8,'train/val splits too large, max total length is 8'
+    assert args.data_split_n[2] <= 2,'max test spllit size is 2'
+
+    if args.sensor_type=='camera':
+        assert args.data_split_n[0] + args.data_split_n[1] <=5,'train/val splits too large, max total length is 5 for camera noise recognition (night scenes removed)'
+
+
 
     assert args.network_name == '','--network_name should be an empty string'
 
@@ -132,17 +147,25 @@ if __name__ == '__main__':
 
         print('model:\n',model)
 
-    
+
     if args.load_checkpoint:
         model.load_state_dict(torch.load(args.output_path+args.sensor_type+'_model.pth'))
-
+        with open(args.output_path+args.sensor_type+'_model_hist.pkl', "rb") as f:
+            history = pickle.load(f) 
 
     loss_fct = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-20)
 
+    # arch = torchviz.make_dot(model(torch.rand(1,18,1).to(device)), params=dict(model.named_parameters()),show_attrs=False, show_saved=False)
+    # arch.render('./ckpt/'+args.sensor_type+'_model_architecture',format='png')
+
     #train
     if args.train:
-        model, history = train(model,args,df_train,df_val,optimizer,loss_fct)
+        wandb.init(project=args.network_name,config=vars(args))
+        # wandb.log({'hostname': socket.gethostname()})
+        # wandb.log({'model architecture': wandb.Image('model')})
+
+        model, history = train(model,args,df_train,df_val,optimizer,loss_fct,wandb)
 
     #test
     if args.test:
@@ -157,17 +180,17 @@ if __name__ == '__main__':
 
 '''
 default arguments:
-CameraNDet, conv_k=3, dropout=0, lr=1e-4, nepochs=100, batch_size=16
+CameraNDet, conv_k=3, dropout=0, lr=1e-4, nepochs=100, batch_size=16, no train, no test
 
 
 Run with :
 
-python noise_classifier.py --sensor_type camera --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --batch_size 16 \
+python noise_classifier.py --sensor_type camera --data_split_n 2 1 1 --lr 1e-3 --n_epochs 1 --batch_size 16 \
                         --conv_k 3 --dropout2d 0 \
-                        --train --save_model --save_hist
+                        --train --save_model --save_hist -v
 
-python noise_classifier.py --sensor_type radar --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --dropout1d 0\
-                                             --train --save_model --save_hist
+python noise_classifier.py --sensor_type radar --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --dropout1d 0.1\
+                                             --train --save_model --save_hist -v
 
 
 
