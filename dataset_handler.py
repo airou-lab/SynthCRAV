@@ -71,8 +71,10 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     radar_df,_ = decode_pcd_file(filename,args.verbose)
                     
                     if radar_df.isna().any().any():
-                        # Empty radar point cloud check
+                        # Empty original radar point cloud check
+                        print(150*'',end='\r')# clear print
                         print('NaN value in dataframe: skipped')
+                        encode_to_pcd_file(radar_df,filename,newfilename,args.verbose)  # copy pasting this cloud
                         continue
 
                     if args.gen_lvl_grad_img or args.gen_csv or args.gen_paper_img:
@@ -92,39 +94,48 @@ def parse_nusc_keyframes(nusc, sensors, args, deformer):
                     # Apply deformation
                     deformed_radar_df = deformer.deform_radar(radar_df)
 
+                    if len(deformed_radar_df) ==0:
+                        # Empty generated radar point cloud check
+                        print(150*'',end='\r')# clear print
+                        print('Empty dataframe generated')
+                                                 # x    y        z   dyn_prop  id  rcs   vx   vy vx_comp vy_comp is_quality_valid ambig_state x_rms y_rms invalid_state pdh0 vx_rms vy_rms
+                                                 # NaN  NaN      0.0        0  -1  0.0  0.0  0.0     0.0     0.0                0           0     0     0             0    0      0      0
+                        deformed_radar_df.loc[0]=[np.nan, np.nan,0.0,       0, -1, 0.0, 0.0, 0.0,    0.0,    0.0,               0,          0,    0,    0,            0,   0,     0,     0]
+
                     # Save output
                     encode_to_pcd_file(deformed_radar_df,filename,newfilename,args.verbose)
 
-                    # Read datapoints
-                    dat = o3d.io.read_point_cloud(filename)
-                    newdat = o3d.io.read_point_cloud(newfilename)
+                    if args.disp_radar or args.save_radar_render:
+                        # Read datapoints
+                        dat = o3d.io.read_point_cloud(filename)
+                        newdat = o3d.io.read_point_cloud(newfilename)
 
-                    # converting to numpy format
-                    pts_OG = np.asarray(dat.points)
-                    pts_new = np.asarray(newdat.points)
+                        # converting to numpy format
+                        pts_OG = np.asarray(dat.points)
+                        pts_new = np.asarray(newdat.points)
 
-                    if args.disp_radar:
-                        # TODO: clean up a bit
-                        disp_radar_pts(pts_OG,title='original',display=True, store_path='')
-                        disp_radar_pts(pts_new,title='new',display=True, store_path='')
-                        
-                        # # using open3d built in (no axis)
-                        # print('Original point clound')
-                        # # print(np.asarray(dat.points))
-                        # # print(dat)
-                        # o3d.visualization.draw_geometries([dat])
+                        if args.disp_radar:
+                            # TODO: clean up a bit
+                            disp_radar_pts(pts_OG,title='original',display=True, store_path='')
+                            disp_radar_pts(pts_new,title='new',display=True, store_path='')
+                            
+                            # # using open3d built in (no axis)
+                            # print('Original point clound')
+                            # # print(np.asarray(dat.points))
+                            # # print(dat)
+                            # o3d.visualization.draw_geometries([dat])
 
-                        # print('New point clound')
-                        # # print(np.asarray(newdat.points))
-                        # # print(newdat)
-                        # o3d.visualization.draw_geometries([newdat])
+                            # print('New point clound')
+                            # # print(np.asarray(newdat.points))
+                            # # print(newdat)
+                            # o3d.visualization.draw_geometries([newdat])
 
-                        # dat = o3d.io.read_point_cloud(filename)
-                        # viz_radar_dat(sample_data)
-                        # o3d.visualization.draw_geometries([dat])
+                            # dat = o3d.io.read_point_cloud(filename)
+                            # viz_radar_dat(sample_data)
+                            # o3d.visualization.draw_geometries([dat])
 
-                    if args.save_radar_render:
-                        save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat)
+                        if args.save_radar_render:
+                            save_radar_3D_render(args,filename,pts_OG,pts_new,dat,newdat)
 
 
                 ##CAMERA DATA SYNTHESIZER##
