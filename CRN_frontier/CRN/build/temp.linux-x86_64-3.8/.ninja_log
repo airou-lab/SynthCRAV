@@ -1,0 +1,15 @@
+# ninja log v5
+0	366	1709855193325148384	/home/CRN/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.o	af1b4247dc3c8c57
+0	10752	1709855203705297568	/home/CRN/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	b86d3d97246c08a4
+0	276	1709855204369307085	/home/CRN/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward_cuda.o	d5d6646b9a995069
+0	10575	1709855214661454214	/home/CRN/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward.o	ef779cdb39e2001e
+5	9768	1709860434008818894	/home/CRN/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	b86d3d97246c08a4
+2	9706	1709860444060924681	/home/CRN/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward.o	ef779cdb39e2001e
+0	360	1710357595924668931	/home/ws/Detection/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.o	b9ebcfb67a64853f
+0	10499	1710357606056832813	/home/ws/Detection/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	a1b6bcb8da8404fd
+0	258	1710357606696843155	/home/ws/Detection/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward_cuda.o	b37a80a347c89aca
+0	10361	1710357616793006190	/home/ws/Detection/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward.o	44879a258bc063e6
+0	565	1731616264966861602	/home/ws/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward_cuda.o	d5d401a85e5f5b9f
+0	18532	1731616282923087842	/home/ws/build/temp.linux-x86_64-3.8/ops/average_voxel_pooling_v2/src/average_voxel_pooling_forward.o	f03e6201416d2cf9
+0	486	1731616284011101547	/home/ws/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward_cuda.o	91398b6089d1740a
+0	18391	1731616301907326941	/home/ws/build/temp.linux-x86_64-3.8/ops/voxel_pooling_v2/src/voxel_pooling_forward.o	bd319a6f6b44cd0d

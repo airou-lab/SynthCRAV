@@ -10,3 +10,15 @@ data/nuScenes
 data/noisy_nuScenes/examples/CAM
 data/noisy_nuScenes/examples/RADAR/csv
 data/noisy_nuScenes/samples/
+
+
+# CRN frontier
+CRN_frontier/CRN/data
+CRN_frontier/CRN/checkpoint
+CRN_frontier/CRN/*egg*
+CRN_frontier/CRN/outputs
+CRN_frontier/CRN/frontier_outputs/*/lightning_logs
+CRN_frontier/CRN/frontier_outputs/*/results*
+CRN_frontier/CRN/frontier_outputs/*/metrics_details.json
+
+
