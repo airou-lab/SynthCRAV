@@ -4,6 +4,7 @@ __pycache__
 *.xlsx
 *.csv
 test*
+wandb
 
 # data
 data/nuScenes
