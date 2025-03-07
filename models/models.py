@@ -16,32 +16,32 @@ class RadarNDet(torch.nn.Module):
     def __init__(self,n_channels, n_labels,dropout_prob=0):
         super(RadarNDet, self).__init__()
 
-        self.input = nn.Sequential(nn.Conv1d(in_channels=n_channels, out_channels=32, kernel_size=3, padding=1),
+        self.input = nn.Sequential(nn.Conv1d(in_channels=n_channels, out_channels=32, kernel_size=1),
                                     nn.ReLU(),
                                     nn.Dropout1d(p=dropout_prob))
 
-        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1),
+        self.conv1 = nn.Sequential(nn.Conv1d(in_channels=32, out_channels=64, kernel_size=1),
                                     nn.ReLU(),
                                     nn.Dropout1d(p=dropout_prob))
 
-        self.conv2 = nn.Sequential(nn.Conv1d(in_channels=64, out_channels=128, kernel_size=3, padding=1),
+        self.conv2 = nn.Sequential(nn.Conv1d(in_channels=64, out_channels=128, kernel_size=1),
                                     nn.ReLU(),
                                     nn.Dropout1d(p=dropout_prob))
 
-        self.conv3 = nn.Sequential(nn.Conv1d(in_channels=128, out_channels=256, kernel_size=3, padding=1),
-                                    nn.ReLU(),
-                                    nn.Dropout1d(p=dropout_prob))
+        # self.conv3 = nn.Sequential(nn.Conv1d(in_channels=128, out_channels=256, kernel_size=1),
+        #                             nn.ReLU(),
+        #                             nn.Dropout1d(p=dropout_prob))
 
         
-        self.fc1 = nn.Sequential(nn.Linear(256,64),
+        self.fc1 = nn.Sequential(nn.Linear(128,64),
                                nn.ReLU(),
                                nn.Dropout(p=dropout_prob))
 
-        self.fc2 = nn.Sequential(nn.Linear(64,16),
+        self.fc2 = nn.Sequential(nn.Linear(64,32),
                                nn.ReLU(),
                                nn.Dropout(p=dropout_prob))
 
-        self.head = nn.Sequential(nn.Linear(16,n_labels))
+        self.head = nn.Sequential(nn.Linear(32,n_labels))
         # no softmax because we use cross entropy loss
 
 
@@ -50,7 +50,7 @@ class RadarNDet(torch.nn.Module):
 
         x = self.conv1(x)
         x = self.conv2(x)
-        x = self.conv3(x)
+        # x = self.conv3(x)
 
         x = torch.mean(x, dim=2)  # global average pooling
 
@@ -63,6 +63,7 @@ class RadarNDet(torch.nn.Module):
 
 
 # Camera noise classifier
+# TODO : try using depthwise convolution layers for lighter network
 class CameraNDet(torch.nn.Module):
     def __init__(self,image_shape,output_size,conv_k,dropout_prob=0):
         super(CameraNDet, self).__init__()
