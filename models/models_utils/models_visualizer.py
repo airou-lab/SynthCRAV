@@ -101,6 +101,7 @@ def plot_confusion_mat(y_true, y_pred, name):
 # main
 if __name__ == '__main__':
     path = './ckpt/radar_model_hist.pkl'
+    # path = './ckpt/cam_model_hist.pkl'
     plot_trainval_loss(path)
     plot_trainval_acc(path)
     get_test_acc(path)

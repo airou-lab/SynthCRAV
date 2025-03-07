@@ -40,7 +40,7 @@ def init_var(nusc_inst,args_inst):
     nusc = nusc_inst
     args = args_inst
 
-def viz_nusc(nusc,singleSensor='CAM_FRONT'):
+def viz_nusc(nusc,nusc_root,singleSensor='CAM_FRONT'):
     # parse nusc and display camera views
     for scene in nusc.scene:
         nusc_sample = nusc.get('sample', scene['first_sample_token'])
@@ -48,12 +48,11 @@ def viz_nusc(nusc,singleSensor='CAM_FRONT'):
         print('nusc_sample:\n',nusc_sample)
         while True:
             sample_data = nusc.get('sample_data', nusc_sample['data'][singleSensor])
-            filename = 'nuScenes/'+sample_data['filename']
+            filename = os.path.join(nusc_root,sample_data['filename'])
             
             # viz_all_cam_img(nusc_sample)
             img = cv2.imread(filename)
             disp_img_cv2(img,scene['name'])
-
 
             if nusc_sample['next'] == "":
                 #GOTO next scene
@@ -895,6 +894,73 @@ def gen_paper_img_radar(args,filename,sensor,deformer,radar_df):
         # disp_img_cv2(superfish_img, title='superfish-distort', block=True)
 
 
+def viz_cam_noise_rec(nusc, nusc_root, singleSensor='CAM_FRONT'):
+    model = CameraNDet(image_shape=[900,1600,3], output_size=11, conv_k=3, dropout_prob=0).to(device)
+    model.load_state_dict(torch.load('./ckpt/camera_model.pth'))
+    model.eval()
+
+    # parse nusc and display camera views
+    for scene in nusc.scene:
+        nusc_sample = nusc.get('sample', scene['first_sample_token'])
+        print('scene:\n',scene)
+        print('nusc_sample:\n',nusc_sample)
+        while True:
+            sample_data = nusc.get('sample_data', nusc_sample['data'][singleSensor])
+            filename = os.path.join(nusc_root,sample_data['filename'])
+            
+            # viz_all_cam_img(nusc_sample)
+            img = cv2.imread(filename)
+
+
+            data = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1).unsqueeze(0).to(device)
+            pred = model(data)
+            predicted_class = torch.argmax(pred, dim=1)  # Get class with highest probability
+
+            disp_img_cv2(img,'predicted noise: %s%%'%(str(predicted_class.item()*10)))
+
+            if nusc_sample['next'] == "":
+                #GOTO next scene
+                print("no next data in scene %s"%(scene['name']))
+                break
+            else:
+                #GOTO next sample
+                next_token = nusc_sample['next']
+                nusc_sample = nusc.get('sample', next_token)
+
+def create_parser():
+
+    parser = argparse.ArgumentParser()
+    
+    # nuScenes loading
+    parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='nuScenes data folder')
+    parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
+    parser.add_argument('--sensor', type=str, default='CAM_FRONT', help='Sensor type (see sensor_list) to focus on')
+    
+    # Functions
+    parser.add_argument('--fct', type=str, default=None, help='function to run')
+
+    # Verbosity level
+    parser.add_argument('--verbose', '-v', action='count', default=0, help='Verbosity on|off')
+
+    return parser
+
 if __name__ == '__main__':
+    parser = create_parser()
+    args = parser.parse_args()
+
+    nusc = load_nusc(args.split, args.nusc_root)
+
+
+    if args.fct == 'viz_nusc':
+        viz_nusc(nusc,args.nusc_root,args.sensor)
+
+    if args.fct == 'viz_cam_noise_rec':
+        from models.models_utils.utils import *
+        from models.models_utils.config import device
+        from models.models import CameraNDet
+        
+        viz_cam_noise_rec(nusc,args.nusc_root,args.sensor)
+
+
     pass
 
