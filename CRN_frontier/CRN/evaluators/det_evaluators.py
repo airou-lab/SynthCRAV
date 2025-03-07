@@ -14,6 +14,28 @@ from pyquaternion import Quaternion
 __all__ = ['DetNuscEvaluator']
 
 
+def remove_night_annot(nusc,result_path):
+    with open (result_path,'r') as resfile:
+        res = json.load(resfile)
+
+    for scene in nusc.scene:
+        if 'night' in scene['description'].lower():
+            nusc_sample = nusc.get('sample', scene['first_sample_token'])
+            while True:
+                # print(nusc_sample['token'],nusc_sample['token'] in res['results'].keys())
+                res['results'][nusc_sample['token']]=[]
+                if nusc_sample['next'] == "":
+                    #GOTO next scene
+                    break
+                else:
+                    #GOTO next sample
+                    next_token = nusc_sample['next']
+                    nusc_sample = nusc.get('sample', next_token)
+
+    with open (result_path,'w') as resfileout:
+        json.dump(res,resfileout)
+
+
 class DetNuscEvaluator():
     ErrNameMapping = {
         'trans_err': 'mATE',
@@ -88,12 +110,15 @@ class DetNuscEvaluator():
         nusc = NuScenes(version=self.version,
                         dataroot=self.data_root,
                         verbose=False)
+        
         # eval_set_map = {
         #     'v1.0-mini': 'mini_val',
         #     'v1.0-trainval': 'val',
         # }
 
         eval_set_map = {'v1.0-mini': 'mini_train'}
+
+        remove_night_annot(nusc, result_path)
 
         nusc_eval = NuScenesEval(nusc,
                                  config=self.eval_detection_configs,

@@ -89,7 +89,7 @@ def create_figs(mAP_list, NDS_list, sensor):
     plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
     
 
-    plt.title('Evolution of mean Average Precision with noise levels')
+    plt.title('Evolution of Nuscenes Detection Score with noise levels')
     plt.xlabel("Noise levels (%)")
     plt.ylabel("NDS")
 
@@ -135,8 +135,8 @@ def create_figs(mAP_list, NDS_list, sensor):
 
 if __name__ == '__main__':
 
-    # mAP_list, NDS_list = accumulate_results('cam')
-    # create_figs(mAP_list, NDS_list, 'cam')
+    mAP_list, NDS_list = accumulate_results('cam')
+    create_figs(mAP_list, NDS_list, 'cam')
 
     mAP_list, NDS_list = accumulate_results('radar')
     print(mAP_list)
