@@ -20,6 +20,9 @@ from models.models_utils.models_visualizer import plot_confusion_mat
 from models.models_utils.config import device, ndevice
 from utils.utils import *
 
+from nuscenes.utils import splits
+
+
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
                 'RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
 
@@ -169,29 +172,37 @@ def create_df(args):
     val_split = []
 
     # accumulate scene names
-    for scene in nusc.scene:
-        if args.network_name == 'CameraNDet':
-            scene_names = [scene['name'] for scene in nusc.scene][:-3]  # accumulating scene names, removing night scenes
-        elif args.network_name == 'RadarNDet':
-            scene_names = [scene['name'] for scene in nusc.scene]       # accumulating scene names, using night scenes for radar
+    trainval = splits.mini_train
+    test = splits.val
+
+    if args.network_name == 'CameraNDet':
+        scene_names = trainval[:-3]  # removing night scenes for camera noise        
+    # elif args.network_name == 'RadarNDet':
+    #     scene_names = trainval      # accumulating scene names, using night scenes for radar
 
     # random scene(s) selection
     for i in range(n_train_scenes):
-        idx = random.randrange(len(scene_names))
-        train_split.append(scene_names.pop(idx))
-
-    for i in range(n_test_scenes):
-        idx = random.randrange(len(scene_names))
-        test_split.append(scene_names.pop(idx))
+        idx = random.randrange(len(trainval))
+        train_split.append(trainval.pop(idx))
 
     for i in range(n_val_scenes):
-        idx = random.randrange(len(scene_names))
-        val_split.append(scene_names.pop(idx))
+        idx = random.randrange(len(trainval))
+        val_split.append(trainval.pop(idx))
+
+    for i in range(n_test_scenes):
+        idx = random.randrange(len(test))
+        test_split.append(test.pop(idx))
+
 
     # Generating output splits
     df_train = get_df_split(nusc, args, train_split)
     df_val   = get_df_split(nusc, args, val_split)
     df_test  = get_df_split(nusc, args, test_split)
+
+    if args.verbose:
+        print('train_split randomly selected scenes:',train_split)
+        print('test_split randomly selected scenes:',test_split)
+        print('val_split randomly selected scenes:',val_split)
 
     return df_train, df_val, df_test  
 
@@ -233,6 +244,8 @@ def batch_generator(args, df):
             data_tensor, label_tensor, raw_data = load_imgs(row)
         elif args.network_name=='RadarNDet':
             data_tensor, label_tensor, raw_data = load_pcd(row)
+            if not data_tensor.shape[1]:    # not using empty point clouds
+                continue    
 
         batch.append((data_tensor, label_tensor))
 
@@ -245,7 +258,7 @@ def batch_generator(args, df):
 
 
 # train / test functions
-def train(model,args,df_train,df_val,optimizer,loss_fct):
+def train(model,args,df_train,df_val,optimizer,loss_fct,wandb):
     # init loss history
     history = {'train_loss':[],
                 'val_loss':[],
@@ -306,7 +319,10 @@ def train(model,args,df_train,df_val,optimizer,loss_fct):
         total_predictions_val=0
 
         with torch.no_grad():
-            for batch_idx, val_batch in enumerate(batch_generator(df_val,args.batch_size)):
+            for batch_idx, val_batch in enumerate(batch_generator(args,df_val)):
+                print(150*' ',end='\r')
+                print('loading point:',batch_idx, '/', round(len(df_val)/args.batch_size),end='\r')
+                
                 # Load data
                 X_val = torch.stack([x[0] for x in val_batch]).detach()
                 labels_val = torch.stack([x[1] for x in val_batch]).detach()
@@ -321,7 +337,7 @@ def train(model,args,df_train,df_val,optimizer,loss_fct):
 
             val_accuracy = 100 * (correct_predictions_val/total_predictions_val)
 
-        print('Epoch val loss: %0.3f \t\t | \taccuracy:%0.2f'%(val_loss, val_accuracy))
+        print('\nEpoch val loss: %0.3f \t\t | \taccuracy:%0.2f'%(val_loss, val_accuracy))
 
 
         # scheduler step
@@ -333,6 +349,8 @@ def train(model,args,df_train,df_val,optimizer,loss_fct):
         history['train_accuracy'].append(epoch_accuracy)
         history['val_loss'].append(val_loss)
         history['val_accuracy'].append(val_accuracy)
+
+        wandb.log({'train_loss': epoch_loss, 'train_accuracy': epoch_accuracy, 'val_loss': val_loss, 'val_accuracy': val_accuracy})
 
         # Save model and results
         if args.save_model:
@@ -347,7 +365,7 @@ def train(model,args,df_train,df_val,optimizer,loss_fct):
 
     return model, history
 
-def test(model,args,df_test,loss_fct):
+def test(model,args,df_test,loss_fct,history):
     print('Testing')
     ################TESTING################
     model.eval()
@@ -358,7 +376,10 @@ def test(model,args,df_test,loss_fct):
     all_labels = []
 
     with torch.no_grad():
-        for batch_idx, test_batch in enumerate(batch_generator(df_test,args.batch_size)):
+        for batch_idx, test_batch in enumerate(batch_generator(args,df_test)):
+            print(150*' ',end='\r')
+            print('loading point:',batch_idx, '/', round(len(df_test)/args.batch_size),end='\r')
+            
             # Load data
             X_test = torch.stack([x[0] for x in test_batch])
             labels_test = torch.stack([x[1] for x in test_batch])
