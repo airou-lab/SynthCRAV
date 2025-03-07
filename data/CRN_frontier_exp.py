@@ -72,7 +72,7 @@ for sensor in sensor_list:
 	print('linking', symlink_target, '@', symlink_path)
 	os.symlink(symlink_target, symlink_path)
 
-# # --> test CRN here
+# --> test CRN here
 # process_return_code = subprocess.run(["bash", "-c", "python scripts/gen_info.py && \
 # 										python scripts/gen_depth_gt.py && \
 # 										python scripts/gen_radar_bev.py && \
@@ -82,8 +82,13 @@ for sensor in sensor_list:
 # 	print('graceful exit')
 # 	exit()
 
-# output_folder = './frontier_outputs/original'
-# shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+output_folder = './frontier_outputs/original'
+try:
+	shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+except FileExistsError:
+	pass
+except:
+	exit()
 
 
 # STEP 2 : CAM SYNTH DATA
@@ -120,7 +125,12 @@ for noise_lvl in range(10,110,10):
 		exit()
 
 	output_folder = './frontier_outputs/cam_frontier_'+str(noise_lvl)
-	shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+	try:
+		shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+	except FileExistsError:
+		pass
+	except:
+		exit()
 
 
 # STEP 3 : RESET
@@ -175,7 +185,12 @@ for noise_lvl in range(10,110,10):
 		exit()
 
 	output_folder = './frontier_outputs/radar_frontier_'+str(noise_lvl)
-	shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+	try:
+		shutil.copytree("outputs/det/CRN_r50_256x704_128x128_4key",output_folder)
+	except FileExistsError:
+		pass
+	except:
+		exit()
 
 
 
