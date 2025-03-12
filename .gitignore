@@ -23,6 +23,7 @@ CRN_frontier/CRN/outputs
 CRN_frontier/CRN/frontier_outputs/*/lightning_logs
 CRN_frontier/CRN/frontier_outputs/*/results*
 CRN_frontier/CRN/frontier_outputs/*/metrics_details.json
+CRN_frontier/CRN/frontier_outputs/*old
 
 models/.bin/
 

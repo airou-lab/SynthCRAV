@@ -31,7 +31,7 @@ info_paths = ['data/frontier_nuScenes/nuscenes_infos_val.pkl']
 RADAR_CHAN = ['RADAR_FRONT', 'RADAR_FRONT_LEFT', 'RADAR_FRONT_RIGHT',
               'RADAR_BACK_LEFT', 'RADAR_BACK_RIGHT']
 
-N_SWEEPS = 0
+N_SWEEPS = 1
 MIN_DISTANCE = 0.1
 MAX_DISTANCE = 100.
 
@@ -79,6 +79,7 @@ def worker(info):
                                        Quaternion(ref_pose_rec['rotation']), inverse=True)
 
     if DEBUG:
+        print('ohoho')
         lidar = LidarPointCloud.from_file(os.path.join(nusc.dataroot, lidar_data['filename']))
 
     for chan in RADAR_CHAN:
@@ -88,6 +89,11 @@ def worker(info):
         for sweep in range(N_SWEEPS):
             # Load up the pointcloud and remove points close to the sensor.
             file_name = os.path.join(nusc.dataroot, current_sd_rec['filename'])
+            # print()
+            # print(file_name)
+            # print(os.path.exists(file_name))
+            # input()
+            # continue
             current_pc = RadarPointCloud.from_file(file_name, invalid_states, dynprop_states, ambig_states)
 
             # Get past pose.
