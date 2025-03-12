@@ -25,7 +25,7 @@ def cleanup():
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
                 'RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT','LIDAR_TOP']
 
-og_nusc_root = './data/nuScenes/'
+og_nusc_root = './data/og_nuScenes/'
 noisy_nusc_root = './data/noisy_nuScenes/'
 frontier_nuscenes_root = './data/frontier_nuScenes/'
 
@@ -73,14 +73,14 @@ for sensor in sensor_list:
 	os.symlink(symlink_target, symlink_path)
 
 # --> test CRN here
-# process_return_code = subprocess.run(["bash", "-c", "python scripts/gen_info.py && \
-# 										python scripts/gen_depth_gt.py && \
-# 										python scripts/gen_radar_bev.py && \
-# 										python scripts/gen_radar_pv.py && \
-# 										python exps/det/CRN_r50_256x704_128x128_4key.py --ckpt_path checkpoint/CRN_r50_256x704_128x128_4key.pth -e -b 1 --gpus 1"])
-# if process_return_code.returncode!=0:
-# 	print('graceful exit')
-# 	exit()
+process_return_code = subprocess.run(["bash", "-c", "python scripts/gen_info.py && \
+										python scripts/gen_depth_gt.py && \
+										python scripts/gen_radar_bev.py && \
+										python scripts/gen_radar_pv.py && \
+										python exps/det/CRN_r50_256x704_128x128_4key.py --ckpt_path checkpoint/CRN_r50_256x704_128x128_4key.pth -e -b 1 --gpus 1"])
+if process_return_code.returncode!=0:
+	print('graceful exit')
+	exit()
 
 output_folder = './frontier_outputs/original'
 try:
@@ -139,7 +139,7 @@ print(80*'#','RESET:',80*'#')
 for sensor in sensor_list:
 	print('current sensor:',sensor)
 
-	symlink_target = os.path.join('..','..','nuScenes','samples',sensor)
+	symlink_target = os.path.join('..','..','og_nuScenes','samples',sensor)
 	symlink_path = os.path.join(frontier_nuscenes,sensor)
 
 	# delete previous symlinks
@@ -191,10 +191,3 @@ for noise_lvl in range(10,110,10):
 		pass
 	except:
 		exit()
-
-
-
-	# input('press enter for next noise level')
-	# print(2*'\n')
-
-
