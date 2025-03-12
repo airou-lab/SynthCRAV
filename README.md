@@ -15,8 +15,8 @@ git clone git@github.com:airou-lab/SynthCRAV.git
 Create a conda environment using python 3.8
 ```shell
 conda init
-conda create --name dataset python=3.8
-conda activate dataset
+conda create --name synthcrav python=3.8
+conda activate synthcrav
 ```
 Then install the packages
 ```shell
