@@ -8,6 +8,7 @@ wandb
 
 # data
 data/nuScenes
+data/og_nuScenes
 data/noisy_nuScenes/examples/CAM
 data/noisy_nuScenes/examples/RADAR/csv
 data/noisy_nuScenes/samples/
