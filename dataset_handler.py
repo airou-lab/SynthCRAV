@@ -751,7 +751,7 @@ class deform_data():
 
                 #This or get noise components in x and y
                 v_comp_mag, v_alpha = cart_to_polar(vx_comp,vy_comp)
-                v_comp_mag_noisy = v_comp_mag + vel_noise*cos(psi)
+                v_comp_mag_noisy = v_comp_mag + vel_noise #*cos(psi)
                 v_comp_noisy_x, v_comp_noisy_y = polar_to_cart(v_comp_mag_noisy,degrees(v_alpha))
                 
                 if self.verbose>=2:
