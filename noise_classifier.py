@@ -34,7 +34,7 @@ def create_parser():
     parser = argparse.ArgumentParser()
 
     # input / output
-    parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='Original nuScenes data folder')
+    parser.add_argument('--nusc_root', type=str, default='./data/og_nuScenes/', help='Original nuScenes data folder')
     parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
     parser.add_argument('--data_root', type=str, default='./data/noisy_nuScenes/', help='Synth data folder')
     parser.add_argument('--output_path', type=str, default='./ckpt/', help='Synth data folder')

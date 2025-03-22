@@ -79,6 +79,22 @@ def get_test_acc(hist_filename):
     print('test_loss:',test_loss)
     print('test_accuracy:',test_accuracy)
 
+def get_TP_FP(hist_filename):
+    with open(hist_filename, "rb") as f:
+        hist = pickle.load(f)
+
+    preds = hist['test_results']['preds']
+    labels = hist['test_results']['labels']
+    n_classes = 11
+    TP = np.zeros(n_classes, dtype=int)
+    FN = np.zeros(n_classes, dtype=int)
+
+    for c in range(n_classes):
+        TP[c] = np.sum((preds == c) & (labels == c))  # Correctly predicted class c
+        FN[c] = np.sum((preds != c) & (labels == c))  # Missed class c
+
+    print('TP:',TP,sum(TP))
+    print('FN:',FN,sum(FN))
 
 def plot_confusion_mat(y_true, y_pred, name):
     # Compute confusion matrix
@@ -100,12 +116,21 @@ def plot_confusion_mat(y_true, y_pred, name):
 
 # main
 if __name__ == '__main__':
+    print(50*'-','Loading RADAR results',50*'-')
     path = './ckpt/radar_model_hist.pkl'
-    # path = './ckpt/cam_model_hist.pkl'
+    plot_trainval_loss(path)
+    plot_trainval_acc(path)
+    get_test_acc(path)
+    get_TP_FP(path)    
+
+    # input('press any key for cam model')
+    print(50*'-','Loading CAMERA results',50*'-')
+    path = './ckpt/camera_model_hist.pkl'
     plot_trainval_loss(path)
     plot_trainval_acc(path)
     get_test_acc(path)
 
+    get_TP_FP(path)    
 
 
 

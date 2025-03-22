@@ -10,6 +10,7 @@ import pandas as pd
 import cv2
 import random
 import pickle
+import time
 
 import torch
 from torch import nn
@@ -173,7 +174,7 @@ def create_df(args):
 
     # accumulate scene names
     trainval = splits.mini_train
-    test = splits.val
+    test = splits.mini_val
 
     if args.network_name == 'CameraNDet':
         scene_names = trainval[:-3]  # removing night scenes for camera noise        
@@ -265,7 +266,8 @@ def train(model,args,df_train,df_val,optimizer,loss_fct,wandb):
                 'test_loss':[],
                 'train_accuracy':[],
                 'val_accuracy':[],
-                'test_accuracy':[]}
+                'test_accuracy':[],
+                'test_results':[]}
 
     print('Training')
     for epoch in range(args.n_epochs):
@@ -321,7 +323,7 @@ def train(model,args,df_train,df_val,optimizer,loss_fct,wandb):
         with torch.no_grad():
             for batch_idx, val_batch in enumerate(batch_generator(args,df_val)):
                 print(150*' ',end='\r')
-                print('loading point:',batch_idx, '/', round(len(df_val)/args.batch_size),end='\r')
+                print('val batch:',batch_idx, '/', round(len(df_val)/args.batch_size),end='\r')
                 
                 # Load data
                 X_val = torch.stack([x[0] for x in val_batch]).detach()
@@ -375,10 +377,12 @@ def test(model,args,df_test,loss_fct,history):
     all_preds = []
     all_labels = []
 
+    start_t = time.perf_counter()
+
     with torch.no_grad():
         for batch_idx, test_batch in enumerate(batch_generator(args,df_test)):
             print(150*' ',end='\r')
-            print('loading point:',batch_idx, '/', round(len(df_test)/args.batch_size),end='\r')
+            print('test batch:',batch_idx, '/', round(len(df_test)/args.batch_size),end='\r')
             
             # Load data
             X_test = torch.stack([x[0] for x in test_batch])
@@ -397,7 +401,10 @@ def test(model,args,df_test,loss_fct,history):
         
     test_accuracy = 100 * (correct_predictions_test/total_predictions_test)
 
+    end_t = time.perf_counter()
+
     print('Test loss: %0.3f \t | \taccuracy:%0.2f'%(test_loss,test_accuracy))
+    print('Total inference time:',end_t - start_t,'s across',len(df_test),'samples. =>',(end_t - start_t)/len(df_test),'s per sample.')
 
     # Convert lists to numpy arrays
     all_preds = np.array(all_preds)
@@ -406,6 +413,8 @@ def test(model,args,df_test,loss_fct,history):
     # output values
     history['test_loss'].append(test_loss)
     history['test_accuracy'].append(test_accuracy)
+
+    history['test_results'] = {'preds':all_preds,'labels':all_labels}
 
     plot_confusion_mat(all_preds, all_labels,args.output_path+args.sensor_type+'_model_mat.png')
 
