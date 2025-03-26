@@ -44,7 +44,7 @@ def accumulate_results(sensor):
     return mAP_list, NDS_list
 
 
-def create_figs(mAP_list, NDS_list, sensor):
+def create_figs(mAP_list, NDS_list, sensor, interp=False):
     outfolder=os.path.join('.','frontier_outputs','viz')
 
     # defining noise levels axis
@@ -52,22 +52,24 @@ def create_figs(mAP_list, NDS_list, sensor):
 
     ## mAP only
     plt.figure(figsize=(16, 9))
-
-    plt.plot(n_lvls, mAP_list, linestyle='--', color='tab:blue', alpha=0.5)
     
-    # n_lvls_smooth = np.linspace(0, 100, 100)  # 300 points for smoothness
-    # spline = make_interp_spline(n_lvls, mAP_list, k=2)
-    # mAP_list_smooth = spline(n_lvls_smooth)    
-    # plt.plot(n_lvls_smooth, mAP_list_smooth, linestyle='--', color='tab:blue', alpha=0.5)
-    mAP_list_smooth = gaussian_filter1d(mAP_list, sigma=1)
-    plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
-    
+    if interp:
+        plt.plot(n_lvls, mAP_list, linestyle='--', color='tab:blue', alpha=0.5)
+        
+        # n_lvls_smooth = np.linspace(0, 100, 100)  # 300 points for smoothness
+        # spline = make_interp_spline(n_lvls, mAP_list, k=2)
+        # mAP_list_smooth = spline(n_lvls_smooth)    
+        # plt.plot(n_lvls_smooth, mAP_list_smooth, linestyle='--', color='tab:blue', alpha=0.5)
+        mAP_list_smooth = gaussian_filter1d(mAP_list, sigma=1)
+        plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
+        plt.legend(['mAP','smoothed_mAP'])
+    else:
+        plt.plot(n_lvls, mAP_list, linestyle='-', color='tab:blue')
 
     plt.title('Evolution of mean Average Precision with noise levels')
     plt.xlabel("Noise levels (%)")
     plt.ylabel("mAP")
 
-    plt.legend(['mAP','smoothed_mAP'])
     plt.grid(True)
     plt.xticks(n_lvls)
     # plt.yticks([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1])
@@ -79,21 +81,24 @@ def create_figs(mAP_list, NDS_list, sensor):
     ## NDS only
     plt.figure(figsize=(16, 9))
 
-    plt.plot(n_lvls, NDS_list, linestyle='--', color='tab:orange', alpha=0.5)
+    if interp:
+        plt.plot(n_lvls, NDS_list, linestyle='--', color='tab:orange', alpha=0.5)
     
-    # n_lvls_smooth = np.linspace(0, 100, 100)  # 300 points for smoothness
-    # spline = make_interp_spline(n_lvls, NDS_list, k=2)
-    # NDS_list_smooth = spline(n_lvls_smooth)    
-    # plt.plot(n_lvls_smooth, NDS_list_smooth, linestyle='--', color='tab:blue', alpha=0.5)
-    NDS_list_smooth = gaussian_filter1d(NDS_list, sigma=1)
-    plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
-    
+        # n_lvls_smooth = np.linspace(0, 100, 100)  # 300 points for smoothness
+        # spline = make_interp_spline(n_lvls, NDS_list, k=2)
+        # NDS_list_smooth = spline(n_lvls_smooth)    
+        # plt.plot(n_lvls_smooth, NDS_list_smooth, linestyle='--', color='tab:blue', alpha=0.5)
+        NDS_list_smooth = gaussian_filter1d(NDS_list, sigma=1)
+        plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
+        plt.legend(['NDS','smoothed_NDS'])
+    else:
+        plt.plot(n_lvls, NDS_list, linestyle='-', color='tab:orange', alpha=1)
+
 
     plt.title('Evolution of Nuscenes Detection Score with noise levels')
     plt.xlabel("Noise levels (%)")
     plt.ylabel("NDS")
 
-    plt.legend(['NDS','smoothed_NDS'])
     plt.grid(True)
     plt.xticks(n_lvls)
     # plt.yticks([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1])
@@ -109,21 +114,24 @@ def create_figs(mAP_list, NDS_list, sensor):
     # plt.plot(n_lvls,mAP_list)
     # plt.plot(n_lvls,NDS_list)
 
-    plt.plot(n_lvls, mAP_list, linestyle='--', color='tab:blue', alpha=0.5)
-    plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
-    plt.plot(n_lvls, NDS_list, linestyle='--', color='tab:orange', alpha=0.5)
-    plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
+    if interp:
+        plt.plot(n_lvls, mAP_list, linestyle='--', color='tab:blue', alpha=0.5)
+        plt.plot(n_lvls, NDS_list, linestyle='--', color='tab:orange', alpha=0.5)
 
+        plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
+        plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
+        plt.legend(['mAP','smoothed_mAP','NDS','smoothed_NDS'])
 
-
-
+    else:
+        plt.plot(n_lvls, mAP_list, linestyle='-', color='tab:blue', alpha=1)
+        plt.plot(n_lvls, NDS_list, linestyle='-', color='tab:orange', alpha=1)
+        plt.legend(['mAP','NDS'])
 
 
     plt.title('Evolution of mean Average Precision and Nuscenes Detection Score with noise levels')
     plt.xlabel("Noise levels (%)")
     plt.ylabel("Accuracies")
 
-    plt.legend(['mAP','NDS'])
     plt.grid(True)
     plt.xticks(n_lvls)
 
@@ -136,9 +144,7 @@ def create_figs(mAP_list, NDS_list, sensor):
 if __name__ == '__main__':
 
     mAP_list, NDS_list = accumulate_results('cam')
-    create_figs(mAP_list, NDS_list, 'cam')
+    create_figs(mAP_list, NDS_list, 'cam', False)
 
     mAP_list, NDS_list = accumulate_results('radar')
-    print(mAP_list)
-    print(NDS_list)
-    create_figs(mAP_list, NDS_list, 'radar')
+    create_figs(mAP_list, NDS_list, 'radar', False)
