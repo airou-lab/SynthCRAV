@@ -16,11 +16,10 @@ import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader
 
-# from sklearn.model_selection import train_test_split
-from models.models_utils.models_visualizer import plot_confusion_mat
-from models.models_utils.config import device, ndevice
 from utils.utils import *
 
+from torch.utils.data import DataLoader, Dataset, random_split
+import pytorch_lightning as pl
 from nuscenes.utils import splits
 
 
@@ -31,6 +30,7 @@ cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_L
 
 radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
 
+# UTILS
 def convert_radardf_to_tensor(radar_df, types_str):
     npdtype_list = []
     tensor_list = []
@@ -83,14 +83,11 @@ def convert_radardf_to_tensor(radar_df, types_str):
 
     return combined_tensor
 
-
-# DATALOADER
-def get_df_split(nusc, args, data_split):
+def get_df_split(nusc, args, sensor_type, data_split):
     '''
     For Cameras the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<noise_type>/<name.jpg>
     For Radars the results are stored in noisy_nuScenes/samples/sensor/<noise_level>/<name.pcd>
     '''
-
     # output
     data_paths = []
     labels = []
@@ -104,7 +101,7 @@ def get_df_split(nusc, args, data_split):
         nusc_sample = nusc.get('sample', scene['first_sample_token'])
 
         while True:
-            if args.network_name == 'CameraNDet':
+            if sensor_type == 'CAM':
                 for sensor in cam_list:
                     # Load nusc info
                     sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
@@ -127,7 +124,7 @@ def get_df_split(nusc, args, data_split):
                     labels.append(0)
                     sensors_list.append(sensor)
 
-            elif args.network_name == 'RadarNDet':
+            elif sensor_type == 'RADAR':
                 for sensor in radar_list:
                     # Load nusc info
                     sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
@@ -139,16 +136,22 @@ def get_df_split(nusc, args, data_split):
                     for noise_level in range (10,110,10):
                         synthpath = os.path.join(args.data_root,'samples',sensor,str(noise_level),token)
                         if os.path.exists(synthpath):
-                            data_paths.append(synthpath)
-                            labels.append(int(noise_level/10))
-                            sensors_list.append(sensor)
+                            # removing empty dataframes
+                            radar_df, types_str = decode_pcd_file(synthpath,verbose=False)
+                            if not radar_df.isnull().values.any():
+                                data_paths.append(synthpath)
+                                labels.append(int(noise_level/10))
+                                sensors_list.append(sensor)
                             getOG=True # signal flag that data is good to take from OG as well
 
 
                     if getOG:
-                        data_paths.append(os.path.join(args.nusc_root,filename))
-                        labels.append(0)
-                        sensors_list.append(sensor)
+                        # removing empty dataframes
+                        radar_df, types_str = decode_pcd_file(synthpath,verbose=False)
+                        if not radar_df.isnull().values.any():
+                            data_paths.append(os.path.join(args.nusc_root,filename))
+                            labels.append(0)
+                            sensors_list.append(sensor)
 
 
             if nusc_sample['next'] == "":
@@ -163,49 +166,86 @@ def get_df_split(nusc, args, data_split):
 
     return df
 
-def create_df(args):
-    nusc = load_nusc(args.split,args.nusc_root)
-
-    # init val
-    n_train_scenes, n_test_scenes, n_val_scenes = args.data_split_n
-    train_split = []
-    test_split = []
-    val_split = []
-
+def create_df(args, nusc, sensor):
     # accumulate scene names
     trainval = splits.mini_train
-    test = splits.mini_val
+    test_split = splits.mini_val
 
-    if args.network_name == 'CameraNDet':
-        scene_names = trainval[:-3]  # removing night scenes for camera noise        
-    # elif args.network_name == 'RadarNDet':
-    #     scene_names = trainval      # accumulating scene names, using night scenes for radar
+    if sensor == 'CAM':
+        trainval = trainval[:-3]  # removing night scenes for camera noise
 
-    # random scene(s) selection
-    for i in range(n_train_scenes):
-        idx = random.randrange(len(trainval))
-        train_split.append(trainval.pop(idx))
+    n_train_scenes = int(len(trainval)*args.ntrain)
+    n_val_scenes = len(trainval) - n_train_scenes
 
-    for i in range(n_val_scenes):
-        idx = random.randrange(len(trainval))
-        val_split.append(trainval.pop(idx))
 
-    for i in range(n_test_scenes):
-        idx = random.randrange(len(test))
-        test_split.append(test.pop(idx))
+    train_split, val_split = random_split(trainval,[n_train_scenes,n_val_scenes],generator=torch.Generator().manual_seed(42))
 
 
     # Generating output splits
-    df_train = get_df_split(nusc, args, train_split)
-    df_val   = get_df_split(nusc, args, val_split)
-    df_test  = get_df_split(nusc, args, test_split)
+    df_train = get_df_split(nusc, args, sensor, list(train_split))
+    df_val   = get_df_split(nusc, args, sensor, list(val_split))
+    df_test  = get_df_split(nusc, args, sensor, list(test_split))
 
     if args.verbose:
-        print('train_split randomly selected scenes:',train_split)
-        print('test_split randomly selected scenes:',test_split)
-        print('val_split randomly selected scenes:',val_split)
+        print('sensor:',sensor)
+        print('trainval:',trainval)
+        print('n_train_scenes:',n_train_scenes)
+        print('n_val_scenes:',n_val_scenes)
+        
+        print('train_split:',list(train_split))
+        print('val_split:',list(val_split))
+        print('test_split:',list(test_split))
+
+        print('train dataset:',df_train)
+        print('test dataset:',df_val)
+        print('val dataset:',df_test)
 
     return df_train, df_val, df_test  
+
+def load_pcd(row):
+    '''
+    takes a df in input (batch)
+    returns a tensor with the loaded images
+    '''
+    labels = torch.tensor(row['labels'], dtype=torch.long)
+    radar_df, types_str = decode_pcd_file(row['data'],verbose=False)
+
+    data = convert_radardf_to_tensor(radar_df,types_str)
+    # print (data.shape)
+    # data = data.unsqueeze(0).transpose(1, 2)  # Shape: [1, N, C] -> [1, C, N]
+    data = data.transpose(0, 1)  # Shape: [N, C] -> [C, N]
+
+    return data, labels, radar_df
+
+def load_pcd_fixed(row):
+    '''
+    takes a df in input (batch)
+    returns a tensor with the loaded images
+    '''
+    N=256
+    labels = torch.tensor(row['labels'], dtype=torch.long)
+    radar_df, types_str = decode_pcd_file(row['data'],verbose=False)
+
+    data = convert_radardf_to_tensor(radar_df,types_str)
+
+    n_pads = N - data.shape[0]
+
+    if n_pads>0:
+        pad = torch.zeros((n_pads, data.shape[1]), dtype=data.dtype, device=data.device)
+        padded_data = torch.cat([data, pad], dim=0)
+    else:
+        padded_data = data[:N]
+
+
+    # print (data.shape)
+    # data = data.unsqueeze(0).transpose(1, 2)  # Shape: [1, N, C] -> [1, C, N]
+    padded_data = padded_data.transpose(0, 1)  # Shape: [N, C] -> [C, N]
+
+    # print(padded_data)
+    # print(padded_data.shape)
+    # input()
+
+    return padded_data, labels, radar_df
 
 def load_imgs(row):
     '''
@@ -213,209 +253,82 @@ def load_imgs(row):
     returns a tensor with the loaded image and a tensor of its label
     '''
     img = cv2.imread(row['data'])
-    data = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1).to(device)
-    labels = torch.tensor(row['labels'], dtype=torch.long).to(device)
+
+    if img is None:
+        raise ValueError(f"Image not found at {row['data']}")
+
+    data = torch.tensor(img, dtype=torch.float32).permute(2, 0, 1)
+    labels = torch.tensor(row['labels'], dtype=torch.long)
     return data, labels, img
 
-def load_pcd(row):
-    '''
-    takes a df in input (batch)
-    returns a tensor with the loaded images
-    '''
-    labels = torch.tensor(row['labels'], dtype=torch.long).to(device)
-    radar_df, types_str = decode_pcd_file(row['data'],verbose=False)
 
-    data = convert_radardf_to_tensor(radar_df,types_str).to(device)
-    # print (data.shape)
-    # data = data.unsqueeze(0).transpose(1, 2)  # Shape: [1, N, C] -> [1, C, N]
-    data = data.transpose(0, 1)  # Shape: [N, C] -> [C, N]
+# DATALOADER
+class ImageDataset(Dataset):
+    def __init__(self, df):
+        self.df = df
 
-    return data, labels, radar_df
+    def __len__(self):
+        return len(self.df)
 
-def batch_generator(args, df):
-    indices = list(df.index)
-    random.shuffle(indices)  # Shuffle data at each epoch
-    
-    batch = []
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        data, labels, _ =load_imgs(row)
+        return data, labels
 
-    for idx in indices:
-        row = df.loc[idx]
+class RadarDataset(Dataset):
+    def __init__(self, df):
+        self.df = df
 
-        if args.network_name=='CameraNDet':
-            data_tensor, label_tensor, raw_data = load_imgs(row)
-        elif args.network_name=='RadarNDet':
-            data_tensor, label_tensor, raw_data = load_pcd(row)
-            if not data_tensor.shape[1]:    # not using empty point clouds
-                continue    
+    def __len__(self):
+        return len(self.df)
 
-        batch.append((data_tensor, label_tensor))
-
-        if len(batch) == args.batch_size:
-            yield batch  # Yield batch when full
-            batch = []  # Reset batch list
-    
-    if batch:  # Yield the last batch if it's not empty
-        yield batch
+    def __getitem__(self, idx):
+        row = self.df.iloc[idx]
+        # data, labels, _ =load_pcd(row)
+        data, labels, _ =load_pcd(row)
+        if not data.shape[1]:  # Skip empty point clouds
+            return None
+        return data, labels
 
 
-# train / test functions
-def train(model,args,df_train,df_val,optimizer,loss_fct,wandb):
-    # init loss history
-    history = {'train_loss':[],
-                'val_loss':[],
-                'test_loss':[],
-                'train_accuracy':[],
-                'val_accuracy':[],
-                'test_accuracy':[],
-                'test_results':[]}
+class DataModule(pl.LightningDataModule):
+    def __init__(self, args, sensor, batch_size=16, n_workers=4):
+        super().__init__()
 
-    print('Training')
-    for epoch in range(args.n_epochs):
-        print('Epoch:',epoch,'/',args.n_epochs)
-        ################Training################
-        model.train()   # set model in train mode
-        epoch_loss = 0
-        correct_predictions=0
-        total_predictions=0
-
-        for batch_idx, batch in enumerate(batch_generator(args,df_train)):
-            print(100*' ',end='\r')
-            print('batch:',batch_idx, '/', round(len(df_train)/args.batch_size),end='\r')
-            # Load data
-            X_train = torch.stack([x[0] for x in batch])
-            labels_train = torch.stack([x[1] for x in batch])
-            
-            # generate predictions (i.e noise values)
-            pred = model(X_train)
-
-            # calculate loss
-            loss = loss_fct(pred,labels_train)
-
-            # backprop loss
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            # Accumulate loss
-            epoch_loss += loss.item()
-
-            # Calculate accuracy
-            _, predicted = torch.max(pred, 1)
-            correct_predictions += (predicted == labels_train).sum().item()
-            total_predictions += labels_train.size(0)
-
-            # print('running loss: %0.3f'%(loss.item()),end='\r')
-
-        epoch_accuracy = 100 * (correct_predictions/total_predictions)
-        
-        print('\nEpoch train loss: %0.3f \t | \taccuracy:%0.2f'%(epoch_loss, epoch_accuracy))
-
-        # clear up training tensor from mem
-        del X_train
-        torch.cuda.empty_cache()  # Clear cache after deletion
-
-        ################VALIDATION################
-        model.eval()        # eval mode
-        val_loss=0
-        correct_predictions_val=0
-        total_predictions_val=0
-
-        with torch.no_grad():
-            for batch_idx, val_batch in enumerate(batch_generator(args,df_val)):
-                print(150*' ',end='\r')
-                print('val batch:',batch_idx, '/', round(len(df_val)/args.batch_size),end='\r')
-                
-                # Load data
-                X_val = torch.stack([x[0] for x in val_batch]).detach()
-                labels_val = torch.stack([x[1] for x in val_batch]).detach()
-
-                val_pred = model(X_val)
-                val_loss += loss_fct(val_pred,labels_val).item()
-
-                # Calculate accuracy
-                _, predicted = torch.max(val_pred, 1)
-                correct_predictions_val += (predicted == labels_val).sum().item()
-                total_predictions_val += labels_val.size(0)
-
-            val_accuracy = 100 * (correct_predictions_val/total_predictions_val)
-
-        print('\nEpoch val loss: %0.3f \t\t | \taccuracy:%0.2f'%(val_loss, val_accuracy))
+        nusc = load_nusc('mini','./data/default_nuScenes')  # loading nusc table
+        self.df_train, self.df_val, self.df_test = create_df(args, nusc, sensor)
+        self.batch_size = batch_size
+        self.sensor = sensor
+        self.n_workers = n_workers
 
 
-        # scheduler step
-        if args.scheduler:
-            scheduler.step()
+    def train_dataloader(self):
+        if self.sensor == 'CAM':
+            train_dataset = ImageDataset(self.df_train)
+        elif self.sensor == 'RADAR':
+            train_dataset = RadarDataset(self.df_train)
 
-        # output values
-        history['train_loss'].append(epoch_loss)
-        history['train_accuracy'].append(epoch_accuracy)
-        history['val_loss'].append(val_loss)
-        history['val_accuracy'].append(val_accuracy)
+        if self.n_workers:
+            return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True, num_workers=self.n_workers, persistent_workers=True,  pin_memory=True)
+        return DataLoader(train_dataset, batch_size=self.batch_size, shuffle=True)
 
-        wandb.log({'train_loss': epoch_loss, 'train_accuracy': epoch_accuracy, 'val_loss': val_loss, 'val_accuracy': val_accuracy})
+    def val_dataloader(self):
+        if self.sensor == 'CAM':
+            val_dataset = ImageDataset(self.df_val)
+        elif self.sensor == 'RADAR':
+            val_dataset = RadarDataset(self.df_val)
+        if self.n_workers:
+            return DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.n_workers, persistent_workers=True,  pin_memory=True)
+        return DataLoader(val_dataset, batch_size=self.batch_size, shuffle=False)
 
-        # Save model and results
-        if args.save_model:
-            torch.save(model.state_dict(), args.output_path+args.sensor_type+'_model.pth')
+    def test_dataloader(self):
+        if self.sensor == 'CAM':
+            test_dataset = ImageDataset(self.df_test)
+        elif self.sensor == 'RADAR':
+            test_dataset = RadarDataset(self.df_test)
+        if self.n_workers:
+            return DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False, num_workers=self.n_workers, persistent_workers=True,  pin_memory=True)
+        return DataLoader(test_dataset, batch_size=self.batch_size, shuffle=False)
 
-        if args.save_hist:
-            with open(args.output_path+args.sensor_type+'_model_hist.pkl', 'wb') as f:
-                pickle.dump(history,f)
 
-    print('\nFinal loss: \t train: %0.3f \t val: %0.3f'%(epoch_loss,val_loss))
-    print('Final accuracy: \t train: %0.2f \t val: %0.2f'%(epoch_accuracy,val_accuracy))
 
-    return model, history
-
-def test(model,args,df_test,loss_fct,history):
-    print('Testing')
-    ################TESTING################
-    model.eval()
-    test_loss=0
-    correct_predictions_test=0
-    total_predictions_test=0
-    all_preds = []
-    all_labels = []
-
-    start_t = time.perf_counter()
-
-    with torch.no_grad():
-        for batch_idx, test_batch in enumerate(batch_generator(args,df_test)):
-            print(150*' ',end='\r')
-            print('test batch:',batch_idx, '/', round(len(df_test)/args.batch_size),end='\r')
-            
-            # Load data
-            X_test = torch.stack([x[0] for x in test_batch])
-            labels_test = torch.stack([x[1] for x in test_batch])
-
-            test_pred = model(X_test)
-            test_loss += loss_fct(test_pred,labels_test).item()
-
-             # Calculate accuracy
-            _, predicted = torch.max(test_pred, 1)
-            correct_predictions_test += (predicted == labels_test).sum().item()
-            total_predictions_test += labels_test.size(0)
-
-            all_preds.extend(predicted.cpu().numpy())  # Convert to numpy and store
-            all_labels.extend(labels_test.cpu().numpy())  # Convert to numpy and store
-        
-    test_accuracy = 100 * (correct_predictions_test/total_predictions_test)
-
-    end_t = time.perf_counter()
-
-    print('Test loss: %0.3f \t | \taccuracy:%0.2f'%(test_loss,test_accuracy))
-    print('Total inference time:',end_t - start_t,'s across',len(df_test),'samples. =>',(end_t - start_t)/len(df_test),'s per sample.')
-
-    # Convert lists to numpy arrays
-    all_preds = np.array(all_preds)
-    all_labels = np.array(all_labels)
-
-    # output values
-    history['test_loss'].append(test_loss)
-    history['test_accuracy'].append(test_accuracy)
-
-    history['test_results'] = {'preds':all_preds,'labels':all_labels}
-
-    plot_confusion_mat(all_preds, all_labels,args.output_path+args.sensor_type+'_model_mat.png')
-
-    return history

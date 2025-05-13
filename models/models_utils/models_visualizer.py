@@ -100,6 +100,8 @@ def plot_confusion_mat(y_true, y_pred, name):
     # Compute confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     print(cm)
+    print('TP:',np.trace(cm))
+    print('FN:',len(y_true)-np.trace(cm))
 
     num_labels = np.arange(0,11,dtype=int).tolist()
     label_list = np.array([0,10,20,30,40,50,60,70,80,90,100])
@@ -114,23 +116,33 @@ def plot_confusion_mat(y_true, y_pred, name):
 
 
 
+
 # main
 if __name__ == '__main__':
     print(50*'-','Loading RADAR results',50*'-')
     path = './ckpt/radar_model_hist.pkl'
-    plot_trainval_loss(path)
-    plot_trainval_acc(path)
-    get_test_acc(path)
-    get_TP_FP(path)    
+
+    with open(path, "rb") as f:
+        hist = pickle.load(f) 
+    print(hist)
+
+    # plot_trainval_loss(path)
+    # plot_trainval_acc(path)
+    # get_test_acc(path)
+    # get_TP_FP(path)    
 
     # input('press any key for cam model')
     print(50*'-','Loading CAMERA results',50*'-')
     path = './ckpt/camera_model_hist.pkl'
-    plot_trainval_loss(path)
-    plot_trainval_acc(path)
-    get_test_acc(path)
+    # plot_trainval_loss(path)
+    # plot_trainval_acc(path)
+    # get_test_acc(path)
+    # get_TP_FP(path)    
 
-    get_TP_FP(path)    
+    with open(path, "rb") as f:
+        hist = pickle.load(f) 
+    print(hist)
+
 
 
 
