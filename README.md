@@ -83,15 +83,30 @@ SynthCRAV
 |   |   |	├── RADAR_[]
 |   |   |	|	├── <noise_level>
 ```
-Note we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do—and recommend—using both samples and sweeps, to avoid complications with detectin backbones. 
+Note we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do—and recommend—using both samples and sweeps, to avoid complications with detection backbones. 
 
 ### Noise Recognition Models
-Once the noise synthetizer has finished, you can train or test our noise recognition models.<br>
-Alternatively, find pre-trained checkpoints in ckpt/.
+Once the synthetic dataset generated, the noise recognition models can be trained and tested.<br>
+Alternatively, ckpt/ contains pre-trained checkpoints, including our best results stored under **ckpt4_best**.
 
 **train/test**
 ```bash
-python noise_classifier.py
-python noise_classifier.py
+python noise_classifier.py --sensor_type camera
+python noise_classifier.py --sensor_type radar
 ```
 
+## Generate a new trainval dataset
+Synthcrav also supports the creation of a custom nuScenes dataset, with synthetically degraded data.<br>
+In practice, the original dataset is divided in four parts:
+- random noise (20% of the dataset)
+- increasing noise (30% of the dataset)
+- constant noise (30% of the dataset)
+- unchanged (20% of the dataset)
+Each part correspond to a different distribution of the noise levels. Note that nighttime data is immediately set aside and considered as unchanged, since it is considered to be already degraded.<br>
+
+To generate the new trainval dataset:
+```bash
+python complete_data_builder.py
+```
+The resulting dataset is stored in **../synth_nuScenes**.<br>
+Generation logs are saved under **./datagen_logs**, in which can be found a .pkl file for each scene, containing detailed information regarding which sensor was deformed, at which level, and with which type (for images, N/A for radar data). A single .txt file contains the names of the scenes composing each dataset subdivision (random_noise, ramp_up, constant, unchanged, night).

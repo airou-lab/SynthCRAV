@@ -4,17 +4,18 @@ __pycache__
 *.xlsx
 *.csv
 test*
-wandb
 
 # data
-data/nuScenes
-data/og_nuScenes
+data/*nuScenes
+data/*nuscenes
 data/noisy_nuScenes/examples/CAM
 data/noisy_nuScenes/examples/RADAR/csv
+data/noisy_nuScenes/examples/presentation/
+data/noisy_nuScenes/examples/better_radar_evolution/
 data/noisy_nuScenes/samples/
 
 data/frontier_nuScenes/*
-
+datagen_logs/*/*.pkl
 
 # CRN frontier
 CRN_frontier/CRN/data
@@ -26,5 +27,11 @@ CRN_frontier/CRN/frontier_outputs/*/results*
 CRN_frontier/CRN/frontier_outputs/*/metrics_details.json
 CRN_frontier/CRN/frontier_outputs/*old*
 
-models/.bin/
+*.bin/
+
+# Models training logs
+CameraNR
+RadarNR
+wandb
+lightning_logs
 
