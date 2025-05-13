@@ -25,7 +25,7 @@ def cleanup():
 sensor_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_LEFT','CAM_FRONT_RIGHT',
                 'RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT','LIDAR_TOP']
 
-og_nusc_root = './data/og_nuScenes/'
+og_nusc_root = './data/default_nuScenes/'
 noisy_nusc_root = './data/noisy_nuScenes/'
 frontier_nuscenes_root = './data/frontier_nuScenes/'
 
@@ -139,7 +139,7 @@ print(80*'#','RESET:',80*'#')
 for sensor in sensor_list:
 	print('current sensor:',sensor)
 
-	symlink_target = os.path.join('..','..','og_nuScenes','samples',sensor)
+	symlink_target = os.path.join('..','..','default_nuScenes','samples',sensor)
 	symlink_path = os.path.join(frontier_nuscenes,sensor)
 
 	# delete previous symlinks

@@ -63,8 +63,11 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
         mAP_list_smooth = gaussian_filter1d(mAP_list, sigma=1)
         plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
         plt.legend(['mAP','smoothed_mAP'])
+        outfile=os.path.join(outfolder,sensor+'_mAP_smooth.png')
+
     else:
         plt.plot(n_lvls, mAP_list, linestyle='-', color='tab:blue')
+        outfile=os.path.join(outfolder,sensor+'_mAP.png')
 
     plt.title('Evolution of mean Average Precision with noise levels')
     plt.xlabel("Noise levels (%)")
@@ -74,7 +77,6 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
     plt.xticks(n_lvls)
     # plt.yticks([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1])
 
-    outfile=os.path.join(outfolder,sensor+'_mAP.png')
     plt.savefig(outfile)
 
 
@@ -91,8 +93,10 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
         NDS_list_smooth = gaussian_filter1d(NDS_list, sigma=1)
         plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
         plt.legend(['NDS','smoothed_NDS'])
+        outfile=os.path.join(outfolder,sensor+'_NDS_smooth.png')
     else:
         plt.plot(n_lvls, NDS_list, linestyle='-', color='tab:orange', alpha=1)
+        outfile=os.path.join(outfolder,sensor+'_NDS.png')
 
 
     plt.title('Evolution of Nuscenes Detection Score with noise levels')
@@ -103,7 +107,6 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
     plt.xticks(n_lvls)
     # plt.yticks([0,0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,1])
 
-    outfile=os.path.join(outfolder,sensor+'_NDS.png')
     plt.savefig(outfile)
 
 
@@ -120,12 +123,14 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
 
         plt.plot(n_lvls, mAP_list_smooth, linestyle='-', color='tab:blue', alpha=1)
         plt.plot(n_lvls, NDS_list_smooth, linestyle='-', color='tab:orange', alpha=1)
-        plt.legend(['mAP','smoothed_mAP','NDS','smoothed_NDS'])
+        plt.legend(['mAP','NDS','smoothed_mAP','smoothed_NDS'])
+        outfile=os.path.join(outfolder,sensor+'_NDS_mAP_smooth.png')
 
     else:
         plt.plot(n_lvls, mAP_list, linestyle='-', color='tab:blue', alpha=1)
         plt.plot(n_lvls, NDS_list, linestyle='-', color='tab:orange', alpha=1)
         plt.legend(['mAP','NDS'])
+        outfile=os.path.join(outfolder,sensor+'_NDS_mAP.png')
 
 
     plt.title('Evolution of mean Average Precision and Nuscenes Detection Score with noise levels')
@@ -135,7 +140,6 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
     plt.grid(True)
     plt.xticks(n_lvls)
 
-    outfile=os.path.join(outfolder,sensor+'_NDS_mAP.png')
     plt.savefig(outfile)
     plt.close()
 
@@ -144,7 +148,7 @@ def create_figs(mAP_list, NDS_list, sensor, interp=False):
 if __name__ == '__main__':
 
     mAP_list, NDS_list = accumulate_results('cam')
-    create_figs(mAP_list, NDS_list, 'cam', False)
+    create_figs(mAP_list, NDS_list, 'cam', True)
 
     mAP_list, NDS_list = accumulate_results('radar')
-    create_figs(mAP_list, NDS_list, 'radar', False)
+    create_figs(mAP_list, NDS_list, 'radar', True)
