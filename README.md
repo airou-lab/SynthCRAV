@@ -2,6 +2,7 @@
 This is the official repository for the paper *Synthetizing and Identifying Noise Levels in Autonomous Vehicle Canera-Radar Datasets* submitted to the IEEE IROS 2025 conference.<br>
 
 **Abstract**: Detecting and tracking objects is a crucial component of any autonomous navigation method. For the past decades, object detection has yielded promising results using neural networks on various datasets. While many methods focus on performance metrics, few projects focus on improving the robustness of these detection and tracking pipelines, notably to sensor failures. In this project, we attempt to address this issue by creating a realistic synthetic data augmentation pipeline for camera-radar Autonomous Vehicle (AV) datasets. Our goal is to accurately simulate sensor failures and data deterioration due to real-world interferences. We also present our results of a baseline lightweight Noise Recognition neural network trained and tested on our augmented dataset.<br>
+
 We present the first camera data augmentation method to simulate image blurring, overexposure, underexposure, and normally distributed additive noise. Our radar noise synthetizer is the first physics-based method to simulate what a radar point cloud would have looked like if there was more noise at the time of the measure. Since we work on the images and point cloud directly, our method does not require additional information than what is provided by the sensors, allowing our *deformer* method to be used on other datasets than nuScenes.<br>
 Finally we also propose the first camera noise recognition method to recognize noise levels under the four different types of deformation we simulate, along with the first radar point cloud noise recognition model.
 
@@ -114,5 +115,5 @@ Generation logs are saved under **./datagen_logs**, in which can be found a .pkl
 
 ## Additional information and experiments
 ### CRN frontier
-To find an optimal noise frontier (i.e., at which noise level should we consider the camera-radar backbone to fail so much an action should be taken), our first initiative was to measure the response of the CRN camera-radar detection backbone to all noise levels and observe the induced drop in performances. These experiments are conducted under **CRN_frontier** and **./data**. Find all the corresponding steps in the experiments' [README.md](https://github.com/airou-lab/SynthCRAV/CRN_frontier/CRN/).
+To find an optimal noise frontier (i.e., at which noise level should we consider the camera-radar backbone to fail so much an action should be taken), our first initiative was to measure the response of the CRN camera-radar detection backbone to all noise levels and observe the induced drop in performances. These experiments are conducted under **CRN_frontier** and **./data**. Find all the corresponding steps in the experiments' [README.md](https://github.com/airou-lab/SynthCRAV/tree/main/CRN_frontier/CRN).
 
