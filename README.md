@@ -84,7 +84,7 @@ SynthCRAV
 |   |   |	├── RADAR_[]
 |   |   |	|	├── <noise_level>
 ```
-Note we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do—and recommend—using both samples and sweeps, to avoid complications with detection backbones. 
+Note: we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do—and recommend—using both samples and sweeps, to avoid complications with detection backbones. 
 
 ### Noise Recognition Models
 Once the synthetic dataset generated, the noise recognition models can be trained and tested.<br>
@@ -115,5 +115,27 @@ Generation logs are saved under **./datagen_logs**, in which can be found a .pkl
 
 ## Additional information and experiments
 ### CRN frontier
-To find an optimal noise frontier (i.e., at which noise level should we consider the camera-radar backbone to fail so much an action should be taken), our first initiative was to measure the response of the CRN camera-radar detection backbone to all noise levels and observe the induced drop in performances. These experiments are conducted under **CRN_frontier** and **./data**. Find all the corresponding steps in the experiments' [README.md](https://github.com/airou-lab/SynthCRAV/tree/main/CRN_frontier/CRN).
+To find an optimal noise frontier (i.e., at which noise level should we consider the camera-radar backbone to fail so much an action should be taken), our first initiative was to measure the response of the CRN camera-radar detection backbone to all noise levels and observe the induced drop in performances. These experiments are conducted under **CRN_frontier** and **./data**. Find all the corresponding steps in the experiments' [README.md](https://github.com/airou-lab/SynthCRAV/tree/main/CRN_frontier/CRN). <br>
+Note: the scripts of CRN are slightly modified to work with our project structure.
 
+### Visualization functions
+SynthCRAV comes with some visualization function, contained in ```visualizer.py```. Using the argument ```--fct```, one can select between different visualizations, such as:
+- visualizing the original data (```--fct viz_nusc```)
+- visualizing the synthetic data and the response of the nosie recognizers (```--fct viz_cam_noise_rec```)
+- visualizing the radar data and map (```--fct viz_radar_map```)
+- Generating several figures to compare the original and noisy data (compare_default_vs_noisy, radar_default_vs_noisy, cam_default_vs_noisy)
+Note: These visualization functions were designed at the last-minute and may require code changes to work properly. Most outputs are in **noisy_dataset/examples** by default.<br>
+
+```radar_mosaic.py``` can be used to generated a mosaic of the scene from the aggregated radar point clouds, at noise levelks 0%, 30%, 60%, and 100%.
+
+### Noise Recognition Models Experimentation
+Last-minute experimentations were conducted on the noise recognition models and are stored in under **./models_exps**. Namely, this folder contains a standalone jupyter notebooks to easily train and test new models. Due to multi-processing issues inherent to notebooks, complete training can be performed using the second (.py) file. These files contain experimental architectures, exploring padding radar point cloud data, using attention layers, and reducing the size of the camera noise recognition model.<br>
+To use these, make sure to move them back to the project root: ```mv ./models_exps/* .```<br>
+
+Similiarily, the **model/legacy** folder contains previous models architectures.
+
+### Movie Makers
+In several folders are files named ```makemovie.py```, which can be used to create a .mp4 out of multiple images. a template can be found at the project root.
+
+### Radar point Cloud Visibility
+In some instances, the scene reconstruction images using aggregated radar point clouds can be hard to see. To fix this, one can invert the colors so that the points come out better under a dark background. The script ```color_inverter.py``` can be used to this effect.
