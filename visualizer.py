@@ -16,8 +16,9 @@ from pyquaternion import Quaternion
 from math import cos, sin, asin, acos, atan2, sqrt, radians, degrees, pi, log
 import cv2
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 from nuscenes import NuScenesExplorer
-from nuscenes.utils.geometry_utils import transform_matrix
+from nuscenes.utils.geometry_utils import view_points, transform_matrix
 from nuscenes.utils.data_classes import RadarPointCloud
 
 from utils.utils import *
@@ -63,7 +64,7 @@ def viz_nusc(nusc,nusc_root,singleSensor='CAM_FRONT'):
                 next_token = nusc_sample['next']
                 nusc_sample = nusc.get('sample', next_token)
 
-def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes = None,nsweeps: int = 1,underlay_map: bool = True,use_flat_vehicle_coordinates: bool = True):
+def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes = None,nsweeps: int = 1,underlay_map: bool = True,use_flat_vehicle_coordinates: bool = True, show_vel: bool = True):
         """
         Render sample data onto axis.
         :param sample_data_token: Sample_data token.
@@ -140,14 +141,15 @@ def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes
         scatter = ax.scatter(points[0, :], points[1, :], c=colors, s=point_scale)
 
         # Show velocities.
-        points_vel = view_points(pc.points[:3, :] + velocities, viewpoint, normalize=False)
-        deltas_vel = points_vel - points
-        deltas_vel = 6 * deltas_vel  # Arbitrary scaling
-        max_delta = 20
-        deltas_vel = np.clip(deltas_vel, -max_delta, max_delta)  # Arbitrary clipping
-        colors_rgba = scatter.to_rgba(colors)
-        for i in range(points.shape[1]):
-            ax.arrow(points[0, i], points[1, i], deltas_vel[0, i], deltas_vel[1, i], color=colors_rgba[i])
+        if show_vel:
+            points_vel = view_points(pc.points[:3, :] + velocities, viewpoint, normalize=False)
+            deltas_vel = points_vel - points
+            deltas_vel = 6 * deltas_vel  # Arbitrary scaling
+            max_delta = 20
+            deltas_vel = np.clip(deltas_vel, -max_delta, max_delta)  # Arbitrary clipping
+            colors_rgba = scatter.to_rgba(colors)
+            for i in range(points.shape[1]):
+                ax.arrow(points[0, i], points[1, i], deltas_vel[0, i], deltas_vel[1, i], color=colors_rgba[i])
 
         # Show ego vehicle.
         ax.plot(0, 0, 'x', color='red')
@@ -158,6 +160,29 @@ def render_radar_data(sample_data_token: str,axes_limit: float = 40,ax: plt.Axes
 
 
         return ax
+
+def render_radar_3D_scan(nusc, nusc_sample, n, savepath=''):
+    # Create the figure and axes object
+    fig = plt.figure(figsize=(16, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    for radar in radar_list:
+        sample_data = nusc.get('sample_data', nusc_sample['data'][radar])
+
+        ax=render_radar_data(sample_data['token'], nsweeps=1, underlay_map=False, ax=ax, show_vel=False) 
+
+    ax.view_init(elev=30, azim=-140)
+    ax.axis('off')
+    plt.tight_layout()
+    
+    if savepath=='':
+        plt.show()
+    else:
+        figname = str(n)+'_radar.png'
+        plt.savefig(os.path.join(savepath,figname))
+
+    plt.close()
+
 
 def viz_radar_dat(sample_data):
     # Visualize radar point clouds of this sample for this a specific sensor   
@@ -171,27 +196,44 @@ def viz_radar_dat(sample_data):
     plt.tight_layout()
     plt.show()
 
-def viz_all_cam_img(nusc_sample, save=False):
+def viz_all_cam_img(nusc_root, nusc_sample, n, savepath=''):
     # Visualize mosaic of all Camera images of this sample   
-    fig, ax = plt.subplots(2,3)
-    ax = ax.flatten()
-    
-    for i, sensor in enumerate(cam_list):
+    fig, axes = plt.subplots(2, 3, gridspec_kw = {'wspace':0, 'hspace':0}, figsize=(16, 9))
+    axes = axes.flatten()
+
+    for i, sensor in enumerate(['CAM_FRONT_LEFT','CAM_FRONT','CAM_FRONT_RIGHT','CAM_BACK_RIGHT','CAM_BACK','CAM_BACK_LEFT']):
+        
         sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
-        filename = 'nuScenes/'+sample_data['filename']
+        
+        filename = os.path.join(nusc_root,sample_data['filename'])
 
-        img = plt.imread(os.path.join('nuScenes',sample_data['filename']))
-        ax[i].imshow(img)
+        img = plt.imread(filename)
+        
+        ax = axes[i]
 
-        ax[i].set_title(sensor)
-
-    if not save: 
-        plt.show(block=True)
+        ax.imshow(img)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.axis('off')
+        ax.set_adjustable('box')        
+        
+        if i<3:
+            ax.set_title(sensor,fontsize=10)
+        else:
+            ax.annotate(sensor,xy=(0.5, -0.05), 
+                xycoords='axes fraction',
+                ha='center', va='center',fontsize=10)
+        
+    plt.subplots_adjust(left=0, right=1, top=1, bottom=0, wspace=0, hspace=0)
+ 
+    if savepath=='': 
+        plt.show()
     else:
-        figname = filename.split('/')[-1]
-        mkdir_if_missing('./noisy_nuScenes/examples/CAM/cam_img/')
-        plt.savefig('./noisy_nuScenes/examples/CAM/cam_img/'+figname)
-    
+        figname = str(n)+'_cam.png'
+        print('saved at',os.path.join(savepath,figname))
+        # input()
+        plt.savefig(os.path.join(savepath,figname))
+
     plt.close()
 
 def viz_all_sample_radar(nusc_sample):
@@ -201,7 +243,7 @@ def viz_all_sample_radar(nusc_sample):
     
     for i, sensor in enumerate(radar_list):
         sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
-        filename = 'nuScenes/'+sample_data['filename']
+        filename = 'default_nuScenes/'+sample_data['filename']
 
         ax[i]=render_radar_data(sample_data['token'], nsweeps=5, underlay_map=True, ax=ax[i]) 
 
@@ -213,7 +255,7 @@ def viz_all_sample_radar(nusc_sample):
 
     plt.show()
 
-def disp_all_sensor_mosaic(nusc_sample):
+def disp_all_sensor_mosaic(args,nusc_sample):
     # Visualize mosaic cof all sensors
     fig, ax = plt.subplots(4,3)
     
@@ -222,7 +264,7 @@ def disp_all_sensor_mosaic(nusc_sample):
     for i, sensor in enumerate(sensor_list):
         sample_data = nusc.get('sample_data', nusc_sample['data'][sensor])
         if 'CAM' in sensor_list[i]:
-            img = plt.imread(os.path.join('nuScenes',sample_data['filename'])) 
+            img = plt.imread(os.path.join(args.nusc_root,sample_data['filename'])) 
             ax[i].imshow(img)
 
         if 'RADAR' in sensor_list[i]:
@@ -895,8 +937,8 @@ def gen_paper_img_radar(args,filename,sensor,deformer,radar_df):
 
 
 def viz_cam_noise_rec(nusc, nusc_root, singleSensor='CAM_FRONT'):
-    model = CameraNDet(image_shape=[900,1600,3], output_size=11, conv_k=3, dropout_prob=0).to(device)
-    model.load_state_dict(torch.load('./ckpt/camera_model.pth'))
+    model = CameraNDet(image_shape=[900,1600,3], output_size=11, history=dict(), conv_k=3, dropout_prob=0, lr=1e-3).to(device)
+    model.load_state_dict(torch.load('./ckpt/ckpt4_tests/camera_model.pth'))
     model.eval()
 
     # parse nusc and display camera views
@@ -927,12 +969,13 @@ def viz_cam_noise_rec(nusc, nusc_root, singleSensor='CAM_FRONT'):
                 next_token = nusc_sample['next']
                 nusc_sample = nusc.get('sample', next_token)
 
+
 def create_parser():
 
     parser = argparse.ArgumentParser()
     
     # nuScenes loading
-    parser.add_argument('--nusc_root', type=str, default='./data/nuScenes/', help='nuScenes data folder')
+    parser.add_argument('--nusc_root', type=str, default='./data/disp_nuscenes/', help='nuScenes data folder')
     parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
     parser.add_argument('--sensor', type=str, default='CAM_FRONT', help='Sensor type (see sensor_list) to focus on')
     
@@ -951,6 +994,7 @@ if __name__ == '__main__':
     nusc = load_nusc(args.split, args.nusc_root)
 
 
+
     if args.fct == 'viz_nusc':
         viz_nusc(nusc,args.nusc_root,args.sensor)
 
@@ -961,6 +1005,155 @@ if __name__ == '__main__':
         
         viz_cam_noise_rec(nusc,args.nusc_root,args.sensor)
 
+    if args.fct == 'viz_radar_map':
+        for scene in nusc.scene:
+            nusc_sample = nusc.get('sample', scene['first_sample_token'])
 
-    pass
+            while True:
+                
+                # fig, ax = plt.subplots(1,1)
 
+                # Create the figure and axes object
+                fig = plt.figure(figsize=(16, 9))
+                ax = fig.add_subplot(111, projection='3d')
+
+                for radar in radar_list:
+                    sample_data = nusc.get('sample_data', nusc_sample['data'][radar])
+    
+                    ax=render_radar_data(sample_data['token'], nsweeps=5, underlay_map=False, ax=ax, show_vel=False) 
+
+                ax.axis('off')
+
+                plt.tight_layout()
+                plt.show()
+
+                if nusc_sample['next'] == "":
+                    #GOTO next scene
+                    break
+                else:
+                    #GOTO next sample
+                    next_token = nusc_sample['next']
+                    nusc_sample = nusc.get('sample', next_token)
+
+    if args.fct == 'compare_default_vs_noisy':
+        if 'default' not in args.nusc_root:
+            def_type = input('deformation type:')
+            runradar = input('run radar ?\n')
+        
+        for scene in nusc.scene:
+            nusc_sample = nusc.get('sample', scene['first_sample_token'])
+            n=1
+            while True:
+                print(nusc_sample)
+
+                if 'default' in args.nusc_root:
+                    viz_all_cam_img(args.nusc_root,nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/presentation/default/cam')
+                    render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/presentation/default/radar')
+                else:
+                    viz_all_cam_img(args.nusc_root,nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/presentation/'+def_type)
+
+                    if runradar in ['y','yes','Yes','Y']:
+                        render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/presentation/radar')
+
+
+
+
+                
+                # input('NEXT TOKEN')
+
+                if nusc_sample['next'] == "":
+                    #GOTO next scene
+                    # break
+                    exit()
+                else:
+                    #GOTO next sample
+                    n+=1
+                    next_token = nusc_sample['next']
+                    nusc_sample = nusc.get('sample', next_token)
+
+    if args.fct == 'radar_default_vs_noisy':
+        nusc = load_nusc('mini', './data/default_nuScenes/')
+
+
+        for scene in nusc.scene:
+            nusc_sample = nusc.get('sample', scene['first_sample_token'])
+            n=1
+            while True:
+                print(nusc_sample)
+
+                # render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/radar_inverted/default')
+                render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='')
+                
+                # input('NEXT TOKEN')
+
+                if nusc_sample['next'] == "":
+                    #GOTO next scene
+                    # break
+                    exit()
+                else:
+                    #GOTO next sample
+                    n+=1
+                    next_token = nusc_sample['next']
+                    nusc_sample = nusc.get('sample', next_token)
+
+        nusc = load_nusc('mini', './data/disp_nuScenes/')
+
+
+        for scene in nusc.scene:
+            nusc_sample = nusc.get('sample', scene['first_sample_token'])
+            n=1
+            while True:
+                print(nusc_sample)
+
+                # render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='./data/noisy_nuScenes/examples/radar_inverted/default')
+                render_radar_3D_scan(nusc, nusc_sample, n=n, savepath='')
+                
+                # input('NEXT TOKEN')
+
+                if nusc_sample['next'] == "":
+                    #GOTO next scene
+                    # break
+                    exit()
+                else:
+                    #GOTO next sample
+                    n+=1
+                    next_token = nusc_sample['next']
+                    nusc_sample = nusc.get('sample', next_token)
+        
+    if args.fct == 'cam_default_vs_noisy':
+        nusc = load_nusc('mini', './data/default_nuScenes/')
+        
+        for deform_type in ['default','blur','gauss','overexp','underexp']:
+            if deform_type=='default':
+                args.nusc_root = './data/default_nuScenes/'
+                outpath ='./data/noisy_nuScenes/examples/presentation/'+deform_type+'/cam'
+                input(outpath)
+            else:
+                args.nusc_root = './data/disp_nuscenes/'
+                outpath ='./data/noisy_nuScenes/examples/presentation/'+deform_type
+
+                print('link data:%s'%(deform_type))
+                input('continue ?')
+
+            for scene in nusc.scene:
+                nusc_sample = nusc.get('sample', scene['first_sample_token'])
+                n=1
+                while True:
+                    # print(nusc_sample)
+
+                    viz_all_cam_img(args.nusc_root,nusc_sample, n=n, savepath=outpath)
+                    
+                    if nusc_sample['next'] == "":
+                        #GOTO next scene
+                        # break
+                        exit()
+                    else:
+                        #GOTO next sample
+                        n+=1
+                        next_token = nusc_sample['next']
+                        nusc_sample = nusc.get('sample', next_token)
+
+
+
+
+    exit()
