@@ -83,7 +83,7 @@ SynthCRAV
 |   |   |	├── RADAR_[]
 |   |   |	|	├── <noise_level>
 ```
-Note we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do---and recommend---using both samples and sweeps, to avoid complications with detectin backbones. 
+Note we do not use the sweeps in this section, since the samples provide us with plenty enough data for the noise recognition task. However to generate a complete synthetically degraded dataset, we do—and recommend—using both samples and sweeps, to avoid complications with detectin backbones. 
 
 ### Noise Recognition Models
 Once the noise synthetizer has finished, you can train or test our noise recognition models.<br>
