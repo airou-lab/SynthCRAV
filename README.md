@@ -109,4 +109,10 @@ To generate the new trainval dataset:
 python complete_data_builder.py
 ```
 The resulting dataset is stored in **../synth_nuScenes**.<br>
-Generation logs are saved under **./datagen_logs**, in which can be found a .pkl file for each scene, containing detailed information regarding which sensor was deformed, at which level, and with which type (for images, N/A for radar data). A single .txt file contains the names of the scenes composing each dataset subdivision (random_noise, ramp_up, constant, unchanged, night).
+Generation logs are saved under **./datagen_logs**, in which can be found a .pkl file for each scene, containing detailed information regarding which sensor was deformed, at which level, and with which type (for images, N/A for radar data). A single ```scenes_split.txt``` file contains the names of the scenes composing each dataset subdivision (random_noise, ramp_up, constant, unchanged, night).
+
+
+## Additional information and experiments
+### CRN frontier
+To find an optimal noise frontier (i.e., at which noise level should we consider the camera-radar backbone to fail so much an action should be taken), our first initiative was to measure the response of the CRN camera-radar detection backbone to all noise levels and observe the induced drop in performances. These experiments are conducted under **CRN_frontier** and **./data**. Find all the corresponding steps in the experiments' [README.md](https://github.com/airou-lab/SynthCRAV/CRN_frontier/CRN/).
+
