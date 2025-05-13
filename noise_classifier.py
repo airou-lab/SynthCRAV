@@ -11,8 +11,14 @@ import wandb
 from copy import copy
 
 import torch
+import torch.multiprocessing as mp
 from torch import nn
 import torchviz
+from torch.utils.data import DataLoader, Dataset, random_split
+import pytorch_lightning as pl
+from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers.wandb import WandbLogger
+
 
 # from torchsummary import summary
 
@@ -28,44 +34,50 @@ cam_list = ['CAM_BACK','CAM_BACK_LEFT','CAM_BACK_RIGHT','CAM_FRONT','CAM_FRONT_L
 radar_list = ['RADAR_FRONT','RADAR_FRONT_LEFT','RADAR_FRONT_RIGHT','RADAR_BACK_LEFT','RADAR_BACK_RIGHT']
 
 
+def get_labels(data_module):
+    # Loading labels
+    labels = copy(data_module.df_train['labels']).drop_duplicates().sort_values().reset_index(drop=True)
+    n_labels = len(labels)
+
+    return labels, len(labels)
+
 
 def create_parser():
 
     parser = argparse.ArgumentParser()
 
     # input / output
-    parser.add_argument('--nusc_root', type=str, default='./data/og_nuScenes/', help='Original nuScenes data folder')
+    parser.add_argument('--nusc_root', type=str, default='./data/default_nuScenes/', help='Original nuScenes data folder')
     parser.add_argument('--split', type=str, default='mini', help='train/val/test/mini')
     parser.add_argument('--data_root', type=str, default='./data/noisy_nuScenes/', help='Synth data folder')
-    parser.add_argument('--output_path', type=str, default='./ckpt/', help='Synth data folder')
+    parser.add_argument('--output_path', type=str, default='./ckpt/', help='checkpoint save path')
 
     # Network selection
-    parser.add_argument('--sensor_type', type=str, default='camera', help='Allows to train separately or together (camera, radar, both)')
+    parser.add_argument('--sensor', type=str, default='CAM', help='CAM | RADAR')
     parser.add_argument('--network_name', type=str, default='', help='Internal name of network. Do not atrribute a value.')
-    parser.add_argument('--data_split_n', type=int, nargs='+', default=[4,1,1], help='sets amount of scene per splits (train/val/test)')
+    parser.add_argument('--ntrain', type=float, default=0.7, help='Set train set size')
 
     # misc
-    parser.add_argument('--img_shape', type=int, nargs='+', default=[900,1600,3], help='nuScenes image size')
-    parser.add_argument('--n_cols', type=int, default=18, help='Number of columns in a radar point cloud')
-    parser.add_argument('--scheduler', type=str, default=None, help='Scheduler setup. Unsupported for now')  # TODOs
+    # parser.add_argument('--scheduler', type=str, default=None, help='Scheduler setup. Unsupported for now')  # TODOs
+    parser.add_argument('--n_workers',type=int, default=0, help='Set a number of workers to load the data' )
 
     # hyperparameters
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
-    parser.add_argument('--n_epochs', type=int, default= 100, help='Number of epochs')
+    parser.add_argument('--n_epochs', type=int, default=10, help='Number of epochs')
     parser.add_argument('--batch_size', type=int, default=16, help='Batch size')
 
     # actions
-    parser.add_argument('--train', action='store_true', default=False, help='train model')
-    parser.add_argument('--test', action='store_true', default=False, help='test model')
+    # parser.add_argument('--train', action='store_true', default=False, help='train model')
+    parser.add_argument('--eval','-e', action='store_true', default=False, help='Evaluate model')
     parser.add_argument('--load_checkpoint', action='store_true', default=False, help='load checkpoint at <output_path>/<sensor_type>+_model.pth')
     parser.add_argument('--save_model', action='store_true', default=False, help='save model at <output_path>/<sensor_type>+_model.pth')
-    parser.add_argument('--save_hist', action='store_true', default=False, help='save model history at <output_path>/<sensor_type>+_hist.pkl')
+    # parser.add_argument('--save_hist', action='store_true', default=False, help='save model history at <output_path>/<sensor_type>+_hist.pkl')
 
 
     # network parameters
     parser.add_argument('--conv_k', type=int, default=3, help='2D convolution kernel')
-    parser.add_argument('--dropout2d', type=float, default=0, help='2D convolution dropout rate (cam)')
-    parser.add_argument('--dropout1d', type=float, default=0, help='1D convolution dropout rate (radar)')
+    parser.add_argument('--dropout2d', type=float, default=0.1, help='2D convolution dropout rate (cam)')
+    parser.add_argument('--dropout1d', type=float, default=0.1, help='1D convolution dropout rate (radar)')
 
     # Verbosity level
     parser.add_argument('--verbose', '-v', action='count', default=0, help='Verbosity level')
@@ -114,68 +126,75 @@ def check_args(args):
 if __name__ == '__main__':
     parser = create_parser()
     args = parser.parse_args()
-    check_args(args)
+    # check_args(args)
 
-    # Load data
-    df_train, df_val, df_test = create_df(args)
+    if args.n_workers>0:
+        mp.set_start_method('spawn', force=True)
 
-    n_train = len(df_train)
-    n_test = len(df_test)
-    n_val = len(df_val)
+    history = history = {'train_loss':[],
+                            'val_loss':[],
+                            'test_loss':[],
+                            'train_accuracy':[],
+                            'val_accuracy':[],
+                            'test_accuracy':[],
+                            'test_results':[]}
 
-    # Loading labels
-    labels = copy(df_train['labels']).drop_duplicates().sort_values().reset_index(drop=True)
-    n_labels = len(labels)
-    
-    # init
-    if args.sensor_type=='camera':
-        model = CameraNDet(image_shape=args.img_shape, output_size=n_labels, conv_k=args.conv_k, dropout_prob=args.dropout2d).to(device)
 
-    elif args.sensor_type=='radar':
-        model = RadarNDet(args.n_cols,n_labels,dropout_prob=args.dropout1d).to(device)
+    if args.sensor =='CAM':
+        # Load data
+        data_module = DataModule(args=args, sensor='CAM',batch_size=args.batch_size,n_workers=args.n_workers)    
+        # Loading labels
+        labels, n_labels = get_labels(data_module)
+        # init model
+        model = CameraNDet(image_shape=[900,1600,3], output_size=n_labels, history=history, conv_k=args.conv_k, dropout_prob=args.dropout2d, lr=args.lr).to(device)
+        model_ckpt_filename = 'camera_model.pth'
+        hist_filename = 'camera_model_hist.pkl'
+        # logger = TensorBoardLogger('lightning_logs', name='camera_noise_classifier')
+        logger = WandbLogger(project="CameraNR", name='EXP0')
 
-    if args.verbose:
-        print('df_train:\n',df_train)
-        print('df_val:\n',df_val)
-        print('df_test:\n',df_test)
-        
-        print('labels:\n',labels)
-        print('n_labels:',n_labels)
+    elif args.sensor=='RADAR':
+        # Load data
+        data_module = DataModule(args=args, sensor='RADAR',batch_size=1,n_workers=args.n_workers)
+        # Loading labels
+        labels, n_labels = get_labels(data_module)
+        # init model
+        model = RadarNDet(n_channels=18, output_size=n_labels, history=history, dropout_prob=args.dropout1d, lr=args.lr).to(device)
+        model_ckpt_filename = 'radar_model.pth'
+        hist_filename = 'radar_model_hist.pkl'
+        # logger = TensorBoardLogger('lightning_logs', name='radar_noise_classifier')
+        # logger = WandbLogger(project="RadarNR", name='EXP0')
 
-        print('image shape:',args.img_shape)
-        print('point cloud features:',args.n_cols)
 
-        print('model:\n',model)
 
 
     if args.load_checkpoint:
-        model.load_state_dict(torch.load(args.output_path+args.sensor_type+'_model.pth'))
-        with open(args.output_path+args.sensor_type+'_model_hist.pkl', "rb") as f:
-            history = pickle.load(f) 
+        model.load_state_dict(torch.load(os.path.join(args.output_path, model_ckpt_filename)))
+        with open(os.path.join(args.output_path,hist_filename), 'rb') as f:
+            model.history = pickle.load(f)
 
-    loss_fct = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, eps=1e-20)
-
-    # arch = torchviz.make_dot(model(torch.rand(1,18,1).to(device)), params=dict(model.named_parameters()),show_attrs=False, show_saved=False)
-    # arch.render('./ckpt/'+args.sensor_type+'_model_architecture',format='png')
-
-    #train
-    if args.train:
-        wandb.init(project=args.network_name,config=vars(args))
-        # wandb.log({'hostname': socket.gethostname()})
-        # wandb.log({'model architecture': wandb.Image('model')})
-
-        model, history = train(model,args,df_train,df_val,optimizer,loss_fct,wandb)
-
-    #test
-    if args.test:
-        history = test(model,args,df_test,loss_fct,history)
-
-
-    if args.save_hist:
-        with open(args.output_path+args.sensor_type+'_model_hist.pkl', 'wb') as f:
+        
+    # init model
+    # trainer = pl.Trainer(logger=logger, max_epochs=args.n_epochs, accelerator = 'gpu' if torch.cuda.is_available() else 'cpu')
+    trainer = pl.Trainer(max_epochs=args.n_epochs, accelerator = 'gpu' if torch.cuda.is_available() else 'cpu')
+    
+    if not args.eval:
+        # training
+        wandb.init(project=args.sensor+'NR',config=vars(args))
+        trainer.fit(model, data_module)
+        
+        # save hist
+        with open(os.path.join(args.output_path, hist_filename), 'wb') as f:
             pickle.dump(history,f)
+        
+        # save trained weights
+        if args.save_model:
+            torch.save(model.state_dict(), os.path.join(args.output_path, model_ckpt_filename))
 
+    # testing 
+    start_t = time.perf_counter()
+    trainer.test(model, data_module)
+    end_t = time.perf_counter()
+    print('evaluated %d point clouds in %f seconds'%(len(data_module.df_test),end_t-start_t))
 
 
 '''
@@ -191,8 +210,4 @@ python noise_classifier.py --sensor_type camera --data_split_n 2 1 1 --lr 1e-3 -
 
 python noise_classifier.py --sensor_type radar --data_split_n 2 1 1 --lr 1e-4 --n_epochs 1 --dropout1d 0.1\
                                              --train --save_model --save_hist -v
-
-
-
-
 '''
