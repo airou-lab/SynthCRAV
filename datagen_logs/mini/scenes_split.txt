@@ -1,0 +1,10 @@
+scene-0553: random_noise
+scene-0757: ramp_up
+scene-0103: ramp_up
+scene-0061: constant
+scene-0796: constant
+scene-0916: unchanged
+scene-0655: unchanged
+scene-1077: night
+scene-1094: night
+scene-1100: night
