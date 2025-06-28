@@ -1,11 +1,16 @@
 # SynthCRAV - Realistic Noise Sythetiser for Camera-Radar Autonomous Vehicle datasets
-This is the official repository for the paper *Synthetizing and Identifying Noise Levels in Autonomous Vehicle Canera-Radar Datasets* submitted to the IEEE IROS 2025 conference.<br>
+This is the official repository for the paper *Synthetizing and Identifying Noise Levels in Autonomous Vehicle Canera-Radar Datasets* submitted to the IEEE ITSC 2025 conference.<br>
 
 **Abstract**: Detecting and tracking objects is a crucial component of any autonomous navigation method. For the past decades, object detection has yielded promising results using neural networks on various datasets. While many methods focus on performance metrics, few projects focus on improving the robustness of these detection and tracking pipelines, notably to sensor failures. In this project, we attempt to address this issue by creating a realistic synthetic data augmentation pipeline for camera-radar Autonomous Vehicle (AV) datasets. Our goal is to accurately simulate sensor failures and data deterioration due to real-world interferences. We also present our results of a baseline lightweight Noise Recognition neural network trained and tested on our augmented dataset.<br>
 
 We present the first camera data augmentation method to simulate image blurring, overexposure, underexposure, and normally distributed additive noise. Our radar noise synthetizer is the first physics-based method to simulate what a radar point cloud would have looked like if there was more noise at the time of the measure. Since we work on the images and point cloud directly, our method does not require additional information than what is provided by the sensors, allowing our *deformer* method to be used on other datasets than nuScenes.<br>
 Finally we also propose the first camera noise recognition method to recognize noise levels under the four different types of deformation we simulate, along with the first radar point cloud noise recognition model.
 
+
+## Sample data used in the paper
+
+We provide the link to the synthesized data for the researchers who are interested in reproducing the result in the paper. Please note that this data is augmented to the original nuScenes dataset:
+https://sooners-my.sharepoint.com/:f:/r/personal/evan_l_mcculley-1_ou_edu/Documents/Mathis_Synth_Nuscenes?csf=1&web=1&e=Y1Qcq3
 ## Git
 Clone the repo
 ```shell
